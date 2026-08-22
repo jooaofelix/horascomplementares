@@ -1,16 +1,28 @@
-import { CATEGORIAS, lerConfig, gravarConfig } from './db.js';
+// Rotas e regras do sistema. Este arquivo não conhece o runtime: recebe um
+// banco já adaptado (SQLite local ou D1) e devolve descrições de resposta.
+
 import {
   gerarHash,
   conferirSenha,
   criarSessao,
   encerrarSessao,
   cookieDeSessao,
+  ITERACOES_PADRAO,
 } from './auth.js';
 
 const LIMITE_TEXTO = 200_000;
-const CODIGO_PROFESSOR = process.env.CODIGO_PROFESSOR || 'tecnicas-de-observacao';
 
-class ErroHttp extends Error {
+export const CATEGORIAS = [
+  'Observação em campo',
+  'Registro cursivo',
+  'Análise de material',
+  'Leitura / fichamento',
+  'Supervisão',
+  'Seminário / evento',
+  'Outro',
+];
+
+export class ErroHttp extends Error {
   constructor(status, mensagem) {
     super(mensagem);
     this.status = status;
@@ -19,14 +31,19 @@ class ErroHttp extends Error {
 
 const erro = (status, mensagem) => new ErroHttp(status, mensagem);
 
-function responderJson(res, status, corpo, cabecalhos = {}) {
-  const dados = JSON.stringify(corpo);
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(dados),
-    ...cabecalhos,
-  });
-  res.end(dados);
+// ---------- config ----------
+
+async function lerConfig(bd, chave) {
+  const linha = await bd.get('SELECT valor FROM config WHERE chave = ?', chave);
+  return linha ? linha.valor : null;
+}
+
+async function gravarConfig(bd, chave, valor) {
+  await bd.run(
+    'INSERT INTO config(chave, valor) VALUES(?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor',
+    chave,
+    String(valor),
+  );
 }
 
 // ---------- validação ----------
@@ -77,34 +94,31 @@ const JUNCOES = `FROM atividades a
   JOIN usuarios u ON u.id = a.usuario_id
   LEFT JOIN usuarios v ON v.id = a.validado_por`;
 
-function buscarAtividade(db, id) {
-  return db.prepare(`SELECT ${COLUNAS_ATIVIDADE} ${JUNCOES} WHERE a.id = ?`).get(id);
-}
+const buscarAtividade = (bd, id) =>
+  bd.get(`SELECT ${COLUNAS_ATIVIDADE} ${JUNCOES} WHERE a.id = ?`, id);
 
-function listarAtividades(db, { usuarioId = null } = {}) {
+function listarAtividades(bd, { usuarioId = null } = {}) {
   const sql = `SELECT ${COLUNAS_ATIVIDADE} ${JUNCOES}
     ${usuarioId ? 'WHERE a.usuario_id = ?' : ''}
     ORDER BY a.data_atividade DESC, a.id DESC`;
-  const stmt = db.prepare(sql);
-  return usuarioId ? stmt.all(usuarioId) : stmt.all();
+  return usuarioId ? bd.all(sql, usuarioId) : bd.all(sql);
 }
 
-function resumo(db, usuarioId) {
-  const linha = db
-    .prepare(
-      `SELECT COUNT(*) AS registros,
-              COALESCE(SUM(horas), 0) AS declarado,
-              COALESCE(SUM(CASE WHEN validado = 1 THEN horas ELSE 0 END), 0) AS validado,
-              COALESCE(SUM(CASE WHEN validado = 0 THEN 1 ELSE 0 END), 0) AS pendentes
-         FROM atividades WHERE usuario_id = ?`,
-    )
-    .get(usuarioId);
+async function resumo(bd, usuarioId) {
+  const linha = await bd.get(
+    `SELECT COUNT(*) AS registros,
+            COALESCE(SUM(horas), 0) AS declarado,
+            COALESCE(SUM(CASE WHEN validado = 1 THEN horas ELSE 0 END), 0) AS validado,
+            COALESCE(SUM(CASE WHEN validado = 0 THEN 1 ELSE 0 END), 0) AS pendentes
+       FROM atividades WHERE usuario_id = ?`,
+    usuarioId,
+  );
   return {
     registros: linha.registros,
     declarado: Math.round(linha.declarado * 100) / 100,
     validado: Math.round(linha.validado * 100) / 100,
     pendentes: linha.pendentes,
-    meta: Number(lerConfig(db, 'meta_horas')),
+    meta: Number(await lerConfig(bd, 'meta_horas')),
   };
 }
 
@@ -134,9 +148,12 @@ function paraCsv(linhas) {
 
 // ---------- rotas ----------
 
-export function criarRotas(db) {
+export function criarRotas(bd, opcoes = {}) {
+  const codigoProfessor = opcoes.codigoProfessor || 'tecnicas-de-observacao';
+  const iteracoesSenha = Number(opcoes.iteracoesSenha) || ITERACOES_PADRAO;
+
   return [
-    ['POST', /^\/api\/cadastro$/, (ctx) => {
+    ['POST', /^\/api\/cadastro$/, async (ctx) => {
       const nome = texto(ctx.corpo.nome, 'seu nome', { max: 120 });
       const email = texto(ctx.corpo.email, 'seu e-mail', { max: 160 }).toLowerCase();
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw erro(400, 'E-mail inválido.');
@@ -146,192 +163,192 @@ export function criarRotas(db) {
       const codigo = texto(ctx.corpo.codigo_professor, 'o código', { obrigatorio: false, max: 100 });
       let papel = 'aluno';
       if (codigo) {
-        if (codigo !== CODIGO_PROFESSOR) throw erro(400, 'Código de professor incorreto.');
+        if (codigo !== codigoProfessor) throw erro(400, 'Código de professor incorreto.');
         papel = 'professor';
       }
 
-      const jaExiste = db.prepare('SELECT 1 FROM usuarios WHERE email = ?').get(email);
-      if (jaExiste) throw erro(409, 'Esse e-mail já está cadastrado.');
+      if (await bd.get('SELECT 1 AS existe FROM usuarios WHERE email = ?', email)) {
+        throw erro(409, 'Esse e-mail já está cadastrado.');
+      }
 
-      const { lastInsertRowid } = db
-        .prepare('INSERT INTO usuarios(nome, email, senha_hash, papel, criado_em) VALUES(?, ?, ?, ?, ?)')
-        .run(nome, email, gerarHash(senha), papel, new Date().toISOString());
+      const { ultimoId } = await bd.run(
+        'INSERT INTO usuarios(nome, email, senha_hash, papel, criado_em) VALUES(?, ?, ?, ?, ?)',
+        nome,
+        email,
+        await gerarHash(senha, iteracoesSenha),
+        papel,
+        new Date().toISOString(),
+      );
 
-      const { token, expira } = criarSessao(db, lastInsertRowid);
+      const { token, expira } = await criarSessao(bd, ultimoId);
       return {
-        corpo: { usuario: { id: lastInsertRowid, nome, email, papel } },
-        cabecalhos: { 'Set-Cookie': cookieDeSessao(token, expira) },
+        corpo: { usuario: { id: ultimoId, nome, email, papel } },
+        cabecalhos: { 'Set-Cookie': cookieDeSessao(token, expira, ctx.seguro) },
       };
     }],
 
-    ['POST', /^\/api\/login$/, (ctx) => {
+    ['POST', /^\/api\/login$/, async (ctx) => {
       const email = texto(ctx.corpo.email, 'seu e-mail', { max: 160 }).toLowerCase();
       const senha = typeof ctx.corpo.senha === 'string' ? ctx.corpo.senha : '';
-      const usuario = db.prepare('SELECT * FROM usuarios WHERE email = ?').get(email);
-      if (!usuario || !conferirSenha(senha, usuario.senha_hash)) {
+      const usuario = await bd.get('SELECT * FROM usuarios WHERE email = ?', email);
+      if (!usuario || !(await conferirSenha(senha, usuario.senha_hash))) {
         throw erro(401, 'E-mail ou senha incorretos.');
       }
-      const { token, expira } = criarSessao(db, usuario.id);
+      const { token, expira } = await criarSessao(bd, usuario.id);
       return {
         corpo: {
           usuario: { id: usuario.id, nome: usuario.nome, email: usuario.email, papel: usuario.papel },
         },
-        cabecalhos: { 'Set-Cookie': cookieDeSessao(token, expira) },
+        cabecalhos: { 'Set-Cookie': cookieDeSessao(token, expira, ctx.seguro) },
       };
     }],
 
-    ['POST', /^\/api\/logout$/, (ctx) => {
-      encerrarSessao(db, ctx.token);
-      return { corpo: { ok: true }, cabecalhos: { 'Set-Cookie': cookieDeSessao('', null) } };
+    ['POST', /^\/api\/logout$/, async (ctx) => {
+      await encerrarSessao(bd, ctx.token);
+      return { corpo: { ok: true }, cabecalhos: { 'Set-Cookie': cookieDeSessao('', null, ctx.seguro) } };
     }],
 
-    ['GET', /^\/api\/eu$/, (ctx) => ({
+    ['GET', /^\/api\/eu$/, async (ctx) => ({
       corpo: {
         usuario: ctx.usuario,
         categorias: CATEGORIAS,
-        meta_horas: Number(lerConfig(db, 'meta_horas')),
-        titulo_turma: lerConfig(db, 'titulo_turma'),
-        resumo: ctx.usuario && ctx.usuario.papel === 'aluno' ? resumo(db, ctx.usuario.id) : null,
+        meta_horas: Number(await lerConfig(bd, 'meta_horas')),
+        titulo_turma: await lerConfig(bd, 'titulo_turma'),
+        resumo: ctx.usuario && ctx.usuario.papel === 'aluno' ? await resumo(bd, ctx.usuario.id) : null,
       },
     })],
 
-    ['GET', /^\/api\/atividades$/, (ctx) => {
+    ['GET', /^\/api\/atividades$/, async (ctx) => {
       const usuario = ctx.exigirLogin();
       const alvo = ctx.url.searchParams.get('usuario_id');
       if (usuario.papel === 'professor') {
-        return { corpo: { atividades: listarAtividades(db, { usuarioId: alvo ? Number(alvo) : null }) } };
+        return { corpo: { atividades: await listarAtividades(bd, { usuarioId: alvo ? Number(alvo) : null }) } };
       }
       return {
         corpo: {
-          atividades: listarAtividades(db, { usuarioId: usuario.id }),
-          resumo: resumo(db, usuario.id),
+          atividades: await listarAtividades(bd, { usuarioId: usuario.id }),
+          resumo: await resumo(bd, usuario.id),
         },
       };
     }],
 
-    ['POST', /^\/api\/atividades$/, (ctx) => {
+    ['POST', /^\/api\/atividades$/, async (ctx) => {
       const usuario = ctx.exigirLogin();
       const dados = validarAtividade(ctx.corpo);
       const agora = new Date().toISOString();
-      const { lastInsertRowid } = db
-        .prepare(
-          `INSERT INTO atividades
-             (usuario_id, titulo, categoria, data_atividade, horas, texto, arquivo_nome, criado_em, atualizado_em)
-           VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          usuario.id, dados.titulo, dados.categoria, dados.data_atividade,
-          dados.horas, dados.texto, dados.arquivo_nome, agora, agora,
-        );
+      const { ultimoId } = await bd.run(
+        `INSERT INTO atividades
+           (usuario_id, titulo, categoria, data_atividade, horas, texto, arquivo_nome, criado_em, atualizado_em)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        usuario.id, dados.titulo, dados.categoria, dados.data_atividade,
+        dados.horas, dados.texto, dados.arquivo_nome, agora, agora,
+      );
       return {
         status: 201,
-        corpo: { atividade: buscarAtividade(db, lastInsertRowid), resumo: resumo(db, usuario.id) },
+        corpo: { atividade: await buscarAtividade(bd, ultimoId), resumo: await resumo(bd, usuario.id) },
       };
     }],
 
-    ['PUT', /^\/api\/atividades\/(\d+)$/, (ctx) => {
+    ['PUT', /^\/api\/atividades\/(\d+)$/, async (ctx) => {
       const usuario = ctx.exigirLogin();
-      const atual = buscarAtividade(db, Number(ctx.parametros[0]));
+      const atual = await buscarAtividade(bd, Number(ctx.parametros[0]));
       if (!atual) throw erro(404, 'Atividade não encontrada.');
       if (atual.usuario_id !== usuario.id) throw erro(403, 'Essa atividade é de outro aluno.');
 
       const dados = validarAtividade(ctx.corpo);
       // Editar o conteúdo derruba o selo do professor: ele revalida a versão nova.
-      db.prepare(
+      await bd.run(
         `UPDATE atividades
             SET titulo = ?, categoria = ?, data_atividade = ?, horas = ?, texto = ?, arquivo_nome = ?,
                 validado = 0, validado_por = NULL, validado_em = NULL, atualizado_em = ?
           WHERE id = ?`,
-      ).run(
         dados.titulo, dados.categoria, dados.data_atividade, dados.horas,
         dados.texto, dados.arquivo_nome, new Date().toISOString(), atual.id,
       );
-      return { corpo: { atividade: buscarAtividade(db, atual.id), resumo: resumo(db, usuario.id) } };
+      return { corpo: { atividade: await buscarAtividade(bd, atual.id), resumo: await resumo(bd, usuario.id) } };
     }],
 
-    ['DELETE', /^\/api\/atividades\/(\d+)$/, (ctx) => {
+    ['DELETE', /^\/api\/atividades\/(\d+)$/, async (ctx) => {
       const usuario = ctx.exigirLogin();
-      const atual = buscarAtividade(db, Number(ctx.parametros[0]));
+      const atual = await buscarAtividade(bd, Number(ctx.parametros[0]));
       if (!atual) throw erro(404, 'Atividade não encontrada.');
       if (atual.usuario_id !== usuario.id && usuario.papel !== 'professor') {
         throw erro(403, 'Essa atividade é de outro aluno.');
       }
-      db.prepare('DELETE FROM atividades WHERE id = ?').run(atual.id);
-      return { corpo: { ok: true, resumo: resumo(db, atual.usuario_id) } };
+      await bd.run('DELETE FROM atividades WHERE id = ?', atual.id);
+      return { corpo: { ok: true, resumo: await resumo(bd, atual.usuario_id) } };
     }],
 
-    ['POST', /^\/api\/atividades\/(\d+)\/validacao$/, (ctx) => {
+    ['POST', /^\/api\/atividades\/(\d+)\/validacao$/, async (ctx) => {
       const usuario = ctx.exigirLogin();
       exigirProfessor(usuario);
-      const atual = buscarAtividade(db, Number(ctx.parametros[0]));
+      const atual = await buscarAtividade(bd, Number(ctx.parametros[0]));
       if (!atual) throw erro(404, 'Atividade não encontrada.');
 
       const validado = ctx.corpo.validado ? 1 : 0;
       const observacao =
         texto(ctx.corpo.observacao, 'a observação', { obrigatorio: false, max: 2000 }) || null;
-      db.prepare(
+      const agora = new Date().toISOString();
+      await bd.run(
         `UPDATE atividades
             SET validado = ?, validado_por = ?, validado_em = ?, observacao = ?, atualizado_em = ?
           WHERE id = ?`,
-      ).run(
         validado,
         validado ? usuario.id : null,
-        validado ? new Date().toISOString() : null,
+        validado ? agora : null,
         observacao,
-        new Date().toISOString(),
+        agora,
         atual.id,
       );
-      return { corpo: { atividade: buscarAtividade(db, atual.id) } };
+      return { corpo: { atividade: await buscarAtividade(bd, atual.id) } };
     }],
 
-    ['GET', /^\/api\/turma$/, (ctx) => {
+    ['GET', /^\/api\/turma$/, async (ctx) => {
       exigirProfessor(ctx.exigirLogin());
-      const alunos = db
-        .prepare(
-          `SELECT u.id, u.nome, u.email,
-                  COUNT(a.id) AS registros,
-                  COALESCE(SUM(a.horas), 0) AS declarado,
-                  COALESCE(SUM(CASE WHEN a.validado = 1 THEN a.horas ELSE 0 END), 0) AS validado,
-                  COALESCE(SUM(CASE WHEN a.validado = 0 THEN 1 ELSE 0 END), 0) AS pendentes
-             FROM usuarios u
-             LEFT JOIN atividades a ON a.usuario_id = u.id
-            WHERE u.papel = 'aluno'
-            GROUP BY u.id
-            ORDER BY u.nome COLLATE NOCASE`,
-        )
-        .all()
-        .map((l) => ({
-          ...l,
-          declarado: Math.round(l.declarado * 100) / 100,
-          validado: Math.round(l.validado * 100) / 100,
-        }));
-      return { corpo: { alunos, meta_horas: Number(lerConfig(db, 'meta_horas')) } };
+      const linhas = await bd.all(
+        `SELECT u.id, u.nome, u.email,
+                COUNT(a.id) AS registros,
+                COALESCE(SUM(a.horas), 0) AS declarado,
+                COALESCE(SUM(CASE WHEN a.validado = 1 THEN a.horas ELSE 0 END), 0) AS validado,
+                COALESCE(SUM(CASE WHEN a.validado = 0 THEN 1 ELSE 0 END), 0) AS pendentes
+           FROM usuarios u
+           LEFT JOIN atividades a ON a.usuario_id = u.id
+          WHERE u.papel = 'aluno'
+          GROUP BY u.id
+          ORDER BY u.nome COLLATE NOCASE`,
+      );
+      const alunos = linhas.map((l) => ({
+        ...l,
+        declarado: Math.round(l.declarado * 100) / 100,
+        validado: Math.round(l.validado * 100) / 100,
+      }));
+      return { corpo: { alunos, meta_horas: Number(await lerConfig(bd, 'meta_horas')) } };
     }],
 
-    ['PUT', /^\/api\/config$/, (ctx) => {
+    ['PUT', /^\/api\/config$/, async (ctx) => {
       exigirProfessor(ctx.exigirLogin());
       if (ctx.corpo.meta_horas !== undefined) {
         const meta = Number(ctx.corpo.meta_horas);
         if (!Number.isFinite(meta) || meta <= 0) throw erro(400, 'Meta de horas inválida.');
-        gravarConfig(db, 'meta_horas', meta);
+        await gravarConfig(bd, 'meta_horas', meta);
       }
       if (ctx.corpo.titulo_turma !== undefined) {
-        gravarConfig(db, 'titulo_turma', texto(ctx.corpo.titulo_turma, 'o nome da turma', { max: 160 }));
+        await gravarConfig(bd, 'titulo_turma', texto(ctx.corpo.titulo_turma, 'o nome da turma', { max: 160 }));
       }
       return {
         corpo: {
-          meta_horas: Number(lerConfig(db, 'meta_horas')),
-          titulo_turma: lerConfig(db, 'titulo_turma'),
+          meta_horas: Number(await lerConfig(bd, 'meta_horas')),
+          titulo_turma: await lerConfig(bd, 'titulo_turma'),
         },
       };
     }],
 
-    ['GET', /^\/api\/exportar\.csv$/, (ctx) => {
+    ['GET', /^\/api\/exportar\.csv$/, async (ctx) => {
       const usuario = ctx.exigirLogin();
       const linhas =
         usuario.papel === 'professor'
-          ? listarAtividades(db)
-          : listarAtividades(db, { usuarioId: usuario.id });
+          ? await listarAtividades(bd)
+          : await listarAtividades(bd, { usuarioId: usuario.id });
       return {
         csv: paraCsv(linhas),
         cabecalhos: {
@@ -343,4 +360,10 @@ export function criarRotas(db) {
   ];
 }
 
-export { ErroHttp, responderJson };
+// Encontra a rota e executa o handler. Compartilhado pelo servidor Node e pelo Worker.
+export async function despachar(rotas, ctx) {
+  const rota = rotas.find(([metodo, padrao]) => metodo === ctx.metodo && padrao.test(ctx.url.pathname));
+  if (!rota) throw new ErroHttp(404, 'Rota não encontrada.');
+  ctx.parametros = ctx.url.pathname.match(rota[1]).slice(1);
+  return rota[2](ctx);
+}

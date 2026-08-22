@@ -5,3 +5,6 @@ data/
 *.db-shm
 .DS_Store
 .env
+
+# estado local do wrangler/miniflare
+.wrangler/

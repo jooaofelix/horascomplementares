@@ -1,0 +1,25 @@
+# Configuração do Cloudflare Workers (deploy pela internet).
+# Rodar no seu computador não precisa nada disso — veja o README.
+
+name = "horas-complementares"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# Os arquivos de public/ são servidos pela própria Cloudflare.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[vars]
+# Troque este código antes de passar o endereço para a turma.
+CODIGO_PROFESSOR = "tecnicas-de-observacao"
+# Custo do PBKDF2 nas senhas. 10000 cabe no limite de 10ms de CPU do plano
+# gratuito; no plano pago dá para subir para 100000 sem quebrar contas antigas
+# (cada hash guarda o número de iterações com que foi criado).
+ITERACOES_SENHA = "10000"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "horas-complementares"
+# Preencha com o id que o comando `wrangler d1 create` devolver.
+database_id = "PREENCHA_COM_O_ID_DO_SEU_BANCO"

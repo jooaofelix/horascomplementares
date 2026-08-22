@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { abrirBanco } from '../src/db.js';
+import { bancoLocal } from '../src/sqlite.js';
 import { criarServidor } from '../server.js';
 
 process.env.CODIGO_PROFESSOR = process.env.CODIGO_PROFESSOR || 'tecnicas-de-observacao';
 
 async function subirServidor() {
-  const db = abrirBanco(':memory:');
-  const servidor = criarServidor(db);
+  const bd = bancoLocal(':memory:');
+  const servidor = criarServidor(bd);
   await new Promise((r) => servidor.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${servidor.address().port}`;
   return { servidor, base, fechar: () => new Promise((r) => servidor.close(r)) };

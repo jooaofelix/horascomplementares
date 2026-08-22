@@ -1,10 +1,13 @@
+// Servidor para rodar no seu computador (ou na rede da faculdade).
+// A versão publicada no Cloudflare usa worker.js, com as mesmas rotas.
+
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { abrirBanco } from './src/db.js';
+import { bancoLocal } from './src/sqlite.js';
 import { lerCookies, usuarioDaSessao } from './src/auth.js';
-import { criarRotas, ErroHttp, responderJson } from './src/api.js';
+import { criarRotas, despachar, ErroHttp } from './src/api.js';
 
 const RAIZ = path.dirname(fileURLToPath(import.meta.url));
 const PUBLICO = path.join(RAIZ, 'public');
@@ -17,6 +20,16 @@ const TIPOS = {
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
 };
+
+function responderJson(res, status, corpo, cabecalhos = {}) {
+  const dados = JSON.stringify(corpo);
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(dados),
+    ...cabecalhos,
+  });
+  res.end(dados);
+}
 
 function lerCorpo(req) {
   return new Promise((resolve, reject) => {
@@ -45,18 +58,14 @@ function lerCorpo(req) {
   });
 }
 
-function servirEstatico(req, res, caminhoUrl) {
+function servirEstatico(res, caminhoUrl) {
   const relativo = caminhoUrl === '/' ? 'index.html' : caminhoUrl.slice(1);
   const arquivo = path.join(PUBLICO, relativo);
-  if (!arquivo.startsWith(PUBLICO + path.sep) && arquivo !== path.join(PUBLICO, 'index.html')) {
-    responderJson(res, 403, { erro: 'Caminho inválido.' });
-    return;
+  if (!arquivo.startsWith(PUBLICO + path.sep)) {
+    return responderJson(res, 403, { erro: 'Caminho inválido.' });
   }
   fs.readFile(arquivo, (err, conteudo) => {
-    if (err) {
-      responderJson(res, 404, { erro: 'Página não encontrada.' });
-      return;
-    }
+    if (err) return responderJson(res, 404, { erro: 'Página não encontrada.' });
     res.writeHead(200, {
       'Content-Type': TIPOS[path.extname(arquivo)] || 'application/octet-stream',
       'Cache-Control': 'no-cache',
@@ -65,34 +74,32 @@ function servirEstatico(req, res, caminhoUrl) {
   });
 }
 
-export function criarServidor(db = abrirBanco()) {
-  const rotas = criarRotas(db);
+export function criarServidor(bd = bancoLocal()) {
+  const rotas = criarRotas(bd, {
+    codigoProfessor: process.env.CODIGO_PROFESSOR,
+    iteracoesSenha: process.env.ITERACOES_SENHA,
+  });
 
   const servidor = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
     if (!url.pathname.startsWith('/api/')) {
       if (req.method !== 'GET') return responderJson(res, 405, { erro: 'Método não permitido.' });
-      return servirEstatico(req, res, url.pathname);
+      return servirEstatico(res, url.pathname);
     }
 
     try {
       const token = lerCookies(req.headers.cookie).sessao;
-      const usuario = usuarioDaSessao(db, token);
-
-      const rota = rotas.find(([metodo, padrao]) => metodo === req.method && padrao.test(url.pathname));
-      if (!rota) throw new ErroHttp(404, 'Rota não encontrada.');
-
+      const usuario = await usuarioDaSessao(bd, token);
       const corpo = req.method === 'GET' || req.method === 'DELETE' ? {} : await lerCorpo(req);
-      const parametros = url.pathname.match(rota[1]).slice(1);
 
-      const resultado = rota[2]({
-        req,
+      const resultado = await despachar(rotas, {
+        metodo: req.method,
         url,
         corpo,
-        parametros,
         token,
         usuario,
+        seguro: false, // servidor local roda em http://
         exigirLogin() {
           if (!usuario) throw new ErroHttp(401, 'Faça login para continuar.');
           return usuario;
@@ -100,12 +107,8 @@ export function criarServidor(db = abrirBanco()) {
       });
 
       if (resultado.csv !== undefined) {
-        res.writeHead(200, {
-          ...resultado.cabecalhos,
-          'Content-Length': Buffer.byteLength(resultado.csv),
-        });
-        res.end(resultado.csv);
-        return;
+        res.writeHead(200, { ...resultado.cabecalhos, 'Content-Length': Buffer.byteLength(resultado.csv) });
+        return res.end(resultado.csv);
       }
       responderJson(res, resultado.status || 200, resultado.corpo, resultado.cabecalhos);
     } catch (e) {
@@ -115,7 +118,7 @@ export function criarServidor(db = abrirBanco()) {
     }
   });
 
-  servidor.on('close', () => db.close());
+  servidor.on('close', () => bd.fechar?.());
   return servidor;
 }
 

@@ -1,0 +1,14 @@
+{
+  "name": "horas-complementares",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Controle de horas complementares da turma de Psicologia — Técnicas de Observação",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test"
+  }
+}

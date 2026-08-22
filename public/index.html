@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Horas Complementares — Técnicas de Observação</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱️</text></svg>">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<!-- ================= ENTRADA ================= -->
+<section id="tela-entrada" class="envolucro oculto">
+  <div class="entrada">
+    <h1>Horas complementares</h1>
+    <p class="sub">Psicologia — Técnicas de Observação</p>
+
+    <div class="cartao">
+      <div id="aviso-entrada" class="aviso erro oculto"></div>
+
+      <form id="form-login">
+        <div class="campo">
+          <label for="login-email">E-mail</label>
+          <input id="login-email" type="email" autocomplete="email" required>
+        </div>
+        <div class="campo">
+          <label for="login-senha">Senha</label>
+          <input id="login-senha" type="password" autocomplete="current-password" required>
+        </div>
+        <button type="submit">Entrar</button>
+        <p class="alternar">Primeira vez? <a id="ir-cadastro">Criar conta</a></p>
+      </form>
+
+      <form id="form-cadastro" class="oculto">
+        <div class="campo">
+          <label for="cad-nome">Nome completo</label>
+          <input id="cad-nome" autocomplete="name" required>
+        </div>
+        <div class="campo">
+          <label for="cad-email">E-mail</label>
+          <input id="cad-email" type="email" autocomplete="email" required>
+        </div>
+        <div class="campo">
+          <label for="cad-senha">Senha (mínimo 6 caracteres)</label>
+          <input id="cad-senha" type="password" autocomplete="new-password" minlength="6" required>
+        </div>
+        <div class="campo">
+          <label for="cad-codigo">Código de professor (opcional)</label>
+          <input id="cad-codigo" autocomplete="off" placeholder="deixe vazio se você é aluno">
+        </div>
+        <button type="submit">Criar conta</button>
+        <p class="alternar">Já tem conta? <a id="ir-login">Entrar</a></p>
+      </form>
+    </div>
+  </div>
+</section>
+
+<!-- ================= APLICATIVO ================= -->
+<section id="tela-app" class="envolucro oculto">
+  <header class="topo">
+    <div>
+      <h1 id="titulo-turma">Horas complementares</h1>
+      <div class="subtitulo" id="identificacao"></div>
+    </div>
+    <div class="espaco"></div>
+    <div class="acoes">
+      <button class="secundario mini" id="btn-exportar">Exportar CSV</button>
+      <button class="secundario mini" id="btn-sair">Sair</button>
+    </div>
+  </header>
+
+  <div id="aviso-app" class="aviso oculto"></div>
+
+  <!-- ---- painel do aluno ---- -->
+  <div id="painel-aluno" class="oculto">
+    <div class="cartao">
+      <h2>Seu progresso</h2>
+      <div class="numeros">
+        <div class="numero"><div class="valor" id="n-validado">0</div><div class="rotulo">horas validadas</div></div>
+        <div class="numero"><div class="valor" id="n-declarado">0</div><div class="rotulo">horas declaradas</div></div>
+        <div class="numero"><div class="valor" id="n-meta">0</div><div class="rotulo">meta da turma</div></div>
+        <div class="numero"><div class="valor" id="n-registros">0</div><div class="rotulo">registros</div></div>
+      </div>
+      <div class="barra">
+        <i class="validado" id="barra-validado" style="width:0"></i>
+        <i class="pendente" id="barra-pendente" style="width:0"></i>
+      </div>
+      <div class="legenda">
+        <span class="l-validado">validado pelo professor</span>
+        <span class="l-pendente">declarado, aguardando validação</span>
+        <span id="falta-meta"></span>
+      </div>
+    </div>
+
+    <div class="cartao">
+      <h2 id="titulo-formulario">Nova atividade</h2>
+      <form id="form-atividade">
+        <input type="hidden" id="ativ-id">
+        <div class="campo">
+          <label for="ativ-titulo">Título da atividade</label>
+          <input id="ativ-titulo" required placeholder="Ex.: Observação livre — pátio da escola, 3º encontro">
+        </div>
+        <div class="linha">
+          <div class="campo">
+            <label for="ativ-categoria">Categoria</label>
+            <select id="ativ-categoria" required></select>
+          </div>
+          <div class="campo">
+            <label for="ativ-data">Data</label>
+            <input id="ativ-data" type="date" required>
+          </div>
+          <div class="campo">
+            <label for="ativ-horas">Horas</label>
+            <input id="ativ-horas" type="number" step="0.25" min="0.25" required placeholder="2.5">
+          </div>
+        </div>
+        <div class="campo">
+          <label for="ativ-texto">Análise / registro de observação</label>
+          <div class="zona-arquivo" id="zona-arquivo">
+            Arraste um arquivo <strong>.txt</strong> ou <strong>.md</strong> aqui, ou clique para escolher —
+            o conteúdo entra no campo abaixo e você pode continuar editando.
+          </div>
+          <input type="file" id="entrada-arquivo" class="oculto" accept=".txt,.md,.markdown,text/plain">
+          <textarea id="ativ-texto" placeholder="Escreva aqui a sua análise, ou carregue um arquivo de texto acima."></textarea>
+          <div class="dica" id="contador-texto">0 caracteres</div>
+        </div>
+        <div class="acoes">
+          <button type="submit" id="btn-salvar">Salvar atividade</button>
+          <button type="button" class="secundario oculto" id="btn-cancelar">Cancelar edição</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="cartao">
+      <h2>Suas atividades</h2>
+      <div class="linha" style="margin-bottom:14px">
+        <input id="busca-aluno" placeholder="Buscar por título ou trecho da análise">
+        <select id="filtro-status-aluno">
+          <option value="">Todos os status</option>
+          <option value="1">Validadas</option>
+          <option value="0">Aguardando validação</option>
+        </select>
+      </div>
+      <div id="lista-aluno"></div>
+    </div>
+  </div>
+
+  <!-- ---- painel do professor ---- -->
+  <div id="painel-professor" class="oculto">
+    <div class="abas">
+      <button class="ativa" data-aba="turma">Turma</button>
+      <button data-aba="registros">Registros</button>
+      <button data-aba="ajustes">Ajustes</button>
+    </div>
+
+    <div id="aba-turma" class="cartao">
+      <h2>Panorama da turma</h2>
+      <div class="rolagem"><table id="tabela-turma"></table></div>
+    </div>
+
+    <div id="aba-registros" class="cartao oculto">
+      <h2>Registros dos alunos</h2>
+      <div class="linha" style="margin-bottom:14px">
+        <input id="busca-prof" placeholder="Buscar por aluno, título ou trecho">
+        <select id="filtro-status-prof">
+          <option value="0">Aguardando validação</option>
+          <option value="">Todos os status</option>
+          <option value="1">Validadas</option>
+        </select>
+      </div>
+      <div id="lista-prof"></div>
+    </div>
+
+    <div id="aba-ajustes" class="cartao oculto">
+      <h2>Ajustes da turma</h2>
+      <div class="linha">
+        <div class="campo">
+          <label for="cfg-meta">Meta de horas</label>
+          <input id="cfg-meta" type="number" min="1" step="1">
+        </div>
+        <div class="campo">
+          <label for="cfg-titulo">Nome da turma</label>
+          <input id="cfg-titulo" maxlength="160">
+        </div>
+      </div>
+      <button id="btn-salvar-config">Salvar ajustes</button>
+      <p class="dica">
+        Alunos entram sozinhos pela tela de cadastro. Para criar outra conta de professor, informe o código
+        definido na variável de ambiente <code>CODIGO_PROFESSOR</code> ao criar a conta.
+      </p>
+    </div>
+  </div>
+</section>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>

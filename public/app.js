@@ -19,8 +19,14 @@ async function api(caminho, opcoes = {}) {
     method: opcoes.metodo || 'GET',
     body: opcoes.corpo ? JSON.stringify(opcoes.corpo) : undefined,
   });
-  const dados = await resposta.json().catch(() => ({}));
-  if (!resposta.ok) throw new Error(dados.erro || 'Não foi possível completar a ação.');
+  const dados = await resposta.json().catch(() => null);
+  if (!resposta.ok || !dados) {
+    // Sem JSON na resposta o servidor caiu antes de responder (limite de CPU,
+    // erro da plataforma): mostrar o código HTTP ajuda a achar a causa.
+    throw new Error(
+      dados?.erro || `Falha na comunicação com o servidor (HTTP ${resposta.status}).`,
+    );
+  }
   return dados;
 }
 

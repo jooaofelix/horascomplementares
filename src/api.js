@@ -93,17 +93,27 @@ function validarAtividade(corpo) {
 // Sem 0/O e 1/I: o código é ditado em sala e digitado no celular.
 const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
-async function gerarCodigoTurma(bd) {
+async function gerarCodigo(bd, tabela, tamanho) {
   for (let tentativa = 0; tentativa < 12; tentativa++) {
-    const bytes = crypto.getRandomValues(new Uint8Array(6));
+    const bytes = crypto.getRandomValues(new Uint8Array(tamanho));
     const codigo = Array.from(bytes, (b) => ALFABETO[b % ALFABETO.length]).join('');
-    if (!(await bd.get('SELECT 1 AS existe FROM turmas WHERE codigo = ?', codigo))) return codigo;
+    if (!(await bd.get(`SELECT 1 AS existe FROM ${tabela} WHERE codigo = ?`, codigo))) return codigo;
   }
-  throw erro(500, 'Não foi possível gerar um código de turma.');
+  throw erro(500, 'Não foi possível gerar um código.');
 }
 
-const normalizarCodigo = (valor) =>
-  texto(valor, 'o código da turma', { obrigatorio: false, max: 12 }).toUpperCase().replace(/[^A-Z0-9]/g, '');
+const gerarCodigoTurma = (bd) => gerarCodigo(bd, 'turmas', 6);
+// Convite é mais longo: ele vale para criar uma conta de professor.
+const gerarCodigoConvite = (bd) => gerarCodigo(bd, 'convites', 10);
+
+const exigirConvidador = (usuario) => {
+  exigirProfessor(usuario);
+  if (!usuario.pode_convidar) throw erro(403, 'Sua conta não pode gerar convites.');
+  return usuario;
+};
+
+const normalizarCodigo = (valor, rotulo = 'o código da turma') =>
+  texto(valor, rotulo, { obrigatorio: false, max: 16 }).toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 const turmasDoProfessor = (bd, professorId) =>
   bd.all(
@@ -239,10 +249,26 @@ export function criarRotas(bd, opcoes = {}) {
 
       const papel = ctx.corpo.papel === 'professor' ? 'professor' : 'aluno';
       let turmaId = null;
+      let convite = null;
+      let podeConvidar = 0;
+
       if (papel === 'aluno') {
         const codigo = normalizarCodigo(ctx.corpo.codigo_turma);
         if (!codigo) throw erro(400, 'Informe o código da turma que o professor passou.');
         turmaId = (await turmaPorCodigo(bd, codigo)).id;
+      } else {
+        // O primeiro professor da instalação entra sem convite — não haveria
+        // quem o convidasse. Daí em diante, só com convite de uso único.
+        const { total } = await bd.get("SELECT COUNT(*) AS total FROM usuarios WHERE papel = 'professor'");
+        if (total === 0) {
+          podeConvidar = 1;
+        } else {
+          const codigo = normalizarCodigo(ctx.corpo.codigo_convite, 'o código do convite');
+          if (!codigo) throw erro(400, 'Criar conta de professor exige um convite. Peça o código a quem já usa o sistema.');
+          convite = await bd.get('SELECT * FROM convites WHERE codigo = ?', codigo);
+          if (!convite) throw erro(404, 'Convite não encontrado. Confira o código.');
+          if (convite.usado_por) throw erro(409, 'Esse convite já foi usado.');
+        }
       }
 
       const instituicao =
@@ -255,12 +281,17 @@ export function criarRotas(bd, opcoes = {}) {
         throw erro(409, 'Esse e-mail já está cadastrado. Use "Entrar" ou outro e-mail.');
       }
 
+      const agora = new Date().toISOString();
       const { ultimoId } = await bd.run(
-        `INSERT INTO usuarios(nome, email, senha_hash, papel, turma_id, matricula, instituicao, criado_em)
-         VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO usuarios(nome, email, senha_hash, papel, turma_id, matricula, instituicao, pode_convidar, criado_em)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         nome, email, await gerarHash(senha, iteracoesSenha), papel,
-        turmaId, matricula, instituicao, new Date().toISOString(),
+        turmaId, matricula, instituicao, podeConvidar, agora,
       );
+
+      if (convite) {
+        await bd.run('UPDATE convites SET usado_por = ?, usado_em = ? WHERE id = ?', ultimoId, agora, convite.id);
+      }
 
       const { token, expira } = await criarSessao(bd, ultimoId);
       return {
@@ -339,9 +370,46 @@ export function criarRotas(bd, opcoes = {}) {
       return { corpo: { ok: true } };
     }],
 
+    // A tela de cadastro precisa saber se já existe professor na instalação.
+    ['GET', /^\/api\/convites$/, async (ctx) => {
+      const professor = exigirConvidador(ctx.exigirLogin());
+      const convites = await bd.all(
+        `SELECT c.id, c.codigo, c.observacao, c.criado_em, c.usado_em, u.nome AS usado_por_nome
+           FROM convites c LEFT JOIN usuarios u ON u.id = c.usado_por
+          WHERE c.criado_por = ? ORDER BY c.id DESC`,
+        professor.id,
+      );
+      return { corpo: { convites } };
+    }],
+
+    ['POST', /^\/api\/convites$/, async (ctx) => {
+      const professor = exigirConvidador(ctx.exigirLogin());
+      const observacao = texto(ctx.corpo.observacao, 'a anotação', { obrigatorio: false, max: 120 }) || null;
+      const codigo = await gerarCodigoConvite(bd);
+      await bd.run(
+        'INSERT INTO convites(codigo, observacao, criado_por, criado_em) VALUES(?, ?, ?, ?)',
+        codigo, observacao, professor.id, new Date().toISOString(),
+      );
+      return { status: 201, corpo: { convite: await bd.get('SELECT * FROM convites WHERE codigo = ?', codigo) } };
+    }],
+
+    ['DELETE', /^\/api\/convites\/(\d+)$/, async (ctx) => {
+      const professor = exigirConvidador(ctx.exigirLogin());
+      const id = Number(ctx.parametros[0]);
+      const convite = await bd.get('SELECT * FROM convites WHERE id = ? AND criado_por = ?', id, professor.id);
+      if (!convite) throw erro(404, 'Convite não encontrado.');
+      if (convite.usado_por) throw erro(409, 'Esse convite já foi usado e não pode ser revogado.');
+      await bd.run('DELETE FROM convites WHERE id = ?', id);
+      return { corpo: { ok: true } };
+    }],
+
     ['GET', /^\/api\/eu$/, async (ctx) => {
       const usuario = ctx.usuario;
       const corpo = { usuario, categorias: CATEGORIAS };
+      if (!usuario) {
+        const { total } = await bd.get("SELECT COUNT(*) AS total FROM usuarios WHERE papel = 'professor'");
+        corpo.convite_obrigatorio = total > 0;
+      }
       if (usuario && usuario.papel === 'aluno') {
         corpo.resumo = await resumo(bd, usuario.id);
         corpo.professor = await bd.get(

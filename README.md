@@ -64,6 +64,7 @@ vez cada:
 ```bash
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/002-turmas-e-campos.sql
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/003-saas-multiprofessor.sql
+npx wrangler d1 execute horas-complementares --remote --file=migracoes/004-convites-de-professor.sql
 ```
 
 O banco local não precisa disso: ao iniciar, o `npm start` confere e cria sozinho as colunas que
@@ -96,11 +97,22 @@ de alunos, a fila de validação e a planilha exportada.
 ## Contas
 
 - **Aluno**: escolhe *Sou aluno(a)* na tela de cadastro e informa o código da turma.
-- **Professor**: escolhe *Sou professor(a)* — o cadastro é livre, sem código de convite.
+- **Professor**: escolhe *Sou professor(a)* e informa um **código de convite**.
 
-Como o cadastro de professor é aberto, qualquer pessoa com o endereço pode criar uma conta de
-professor e montar as próprias turmas. Ela não enxerga nada das suas: cada professor só alcança os
-alunos das turmas que ele mesmo criou.
+O primeiro professor de uma instalação nova entra sem convite — não haveria quem o convidasse — e é
+ele quem passa a poder convidar os outros. Na aba **Convites** ele gera códigos de uso único, cada um
+com uma anotação para lembrar de quem é, copia o convite pronto para enviar e revoga os que ainda não
+foram usados. A lista mostra quem usou cada convite e quando.
+
+Quem entra por convite vira professor pleno das próprias turmas, mas não gera convites: a porta
+continua sendo só sua. Para dar essa permissão a outra pessoa:
+
+```bash
+npx wrangler d1 execute horas-complementares --remote \
+  --command "UPDATE usuarios SET pode_convidar = 1 WHERE email = 'colega@exemplo.br'"
+```
+
+Um professor nunca enxerga as turmas, os alunos nem os convites de outro.
 
 ## Como o aluno usa
 
@@ -142,6 +154,7 @@ o professor sempre valida a versão que está lá.
   atividade, local ou trecho da análise.
 - **Turmas**: criar, renomear, ajustar a meta, ver o código e excluir turmas (uma turma com alunos
   não é excluída por engano).
+- **Convites** (só para quem pode convidar): gerar, copiar e revogar convites de professor.
 - **Meus dados**: nome e instituição, que aparecem para os alunos.
 
 O botão **Exportar CSV** baixa uma planilha — o aluno leva só os próprios registros, o professor leva

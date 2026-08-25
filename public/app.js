@@ -8,6 +8,7 @@ const estado = {
   atividades: [],
   resumo: null,
   alunos: [],
+  convites: [],
   turmaFiltro: '',
   papelCadastro: 'aluno',
 };
@@ -73,6 +74,9 @@ $$('.escolha button').forEach((botao) => {
     $('#campos-aluno').classList.toggle('oculto', !aluno);
     $$('.campo-aluno').forEach((c) => c.classList.toggle('oculto', !aluno));
     $$('.campo-professor').forEach((c) => c.classList.toggle('oculto', aluno));
+    if (!aluno && !$('#campo-convite').dataset.obrigatorio) {
+      $('#campo-convite').classList.add('oculto'); // primeira conta da instalação
+    }
     $('#btn-criar-conta').textContent = aluno ? 'Entrar na turma' : 'Criar minha conta';
   };
 });
@@ -122,6 +126,7 @@ $('#form-cadastro').onsubmit = async (e) => {
         email: $('#cad-email').value,
         senha: $('#cad-senha').value,
         codigo_turma: $('#cad-codigo-turma').value,
+        codigo_convite: $('#cad-convite').value,
         matricula: $('#cad-matricula').value,
         instituicao: $('#cad-instituicao').value,
       },
@@ -385,7 +390,7 @@ async function lerArquivo(arquivo) {
 $$('.abas button').forEach((botao) => {
   botao.onclick = () => {
     $$('.abas button').forEach((b) => b.classList.toggle('ativa', b === botao));
-    for (const aba of ['turma', 'registros', 'turmas', 'ajustes']) {
+    for (const aba of ['turma', 'registros', 'turmas', 'convites', 'ajustes']) {
       $(`#aba-${aba}`).classList.toggle('oculto', aba !== botao.dataset.aba);
     }
     $('#filtro-turma-cartao').classList.toggle(
@@ -526,6 +531,58 @@ $('#lista-turmas').addEventListener('click', async (e) => {
   }
 });
 
+function desenharConvites() {
+  $('#lista-convites').innerHTML = estado.convites.length
+    ? estado.convites.map((c) => `<div class="item">
+        <div class="sub">${escapar(c.observacao || 'sem anotação')}</div>
+        <div class="codigo-turma">
+          <span class="valor" style="font-size:18px">${escapar(c.codigo)}</span>
+          ${c.usado_em ? '' : `<button class="secundario mini" data-copiar-convite="${escapar(c.codigo)}">Copiar</button>`}
+        </div>
+        ${c.usado_em
+          ? `<div class="sub">Usado por ${escapar(c.usado_por_nome || 'alguém')} em ${dataBr(c.usado_em)}</div>`
+          : `<div class="acoes"><button class="perigo mini" data-revogar="${c.id}">Revogar</button></div>`}
+      </div>`).join('')
+    : '<p class="vazio">Nenhum convite gerado ainda.</p>';
+}
+
+$('#btn-criar-convite').onclick = async () => {
+  try {
+    await api('/api/convites', { metodo: 'POST', corpo: { observacao: $('#novo-convite-obs').value } });
+    $('#novo-convite-obs').value = '';
+    await carregarConvites();
+    avisar('Convite gerado. Copie e envie para o professor.', 'ok');
+  } catch (err) {
+    falhar(err);
+  }
+};
+
+$('#lista-convites').addEventListener('click', async (e) => {
+  const { copiarConvite, revogar } = e.target.dataset;
+  try {
+    if (copiarConvite !== undefined) {
+      const texto = `Você foi convidado para o controle de horas complementares: ${location.origin}\n` +
+        `Crie a conta escolhendo "Sou professor(a)" e use o convite: ${copiarConvite}`;
+      await navigator.clipboard.writeText(texto);
+      avisar('Convite copiado.', 'ok');
+    }
+    if (revogar) {
+      if (!confirm('Revogar este convite?')) return;
+      await api(`/api/convites/${revogar}`, { metodo: 'DELETE' });
+      await carregarConvites();
+      avisar('Convite revogado.', 'ok');
+    }
+  } catch (err) {
+    falhar(err);
+  }
+});
+
+async function carregarConvites() {
+  const { convites } = await api('/api/convites');
+  estado.convites = convites;
+  desenharConvites();
+}
+
 $('#btn-salvar-perfil').onclick = async () => {
   try {
     await api('/api/eu', {
@@ -582,7 +639,10 @@ async function iniciar() {
   estado.usuario = dados.usuario;
   estado.categorias = dados.categorias;
 
-  if (!estado.usuario) return mostrarEntrada();
+  if (!estado.usuario) {
+    $('#campo-convite').dataset.obrigatorio = dados.convite_obrigatorio ? '1' : '';
+    return mostrarEntrada();
+  }
 
   $('#tela-entrada').classList.add('oculto');
   $('#tela-app').classList.remove('oculto');
@@ -595,7 +655,9 @@ async function iniciar() {
     $('#cfg-nome').value = u.nome;
     $('#cfg-instituicao').value = u.instituicao || '';
     estado.turmas = dados.turmas || [];
+    $('#aba-botao-convites').classList.toggle('oculto', !u.pode_convidar);
     await carregarProfessor();
+    if (u.pode_convidar) await carregarConvites();
   } else {
     const prof = dados.professor;
     $('#identificacao').textContent = [u.nome, u.turma_nome].filter(Boolean).join(' · ');

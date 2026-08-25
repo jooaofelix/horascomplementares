@@ -73,6 +73,12 @@
           <label for="cad-instituicao">Instituição / curso <span class="opcional">(opcional)</span></label>
           <input id="cad-instituicao" autocomplete="organization" placeholder="Ex.: Psicologia — UniExemplo">
         </div>
+        <div class="campo campo-professor oculto" id="campo-convite">
+          <label for="cad-convite">Código de convite</label>
+          <input id="cad-convite" autocapitalize="characters" autocomplete="off" maxlength="16"
+                 placeholder="Ex.: K7PQ2MX4RT" style="text-transform:uppercase;letter-spacing:.08em">
+          <div class="ajuda">Conta de professor só com convite de quem já usa o sistema.</div>
+        </div>
 
         <button type="submit" id="btn-criar-conta">Criar minha conta</button>
         <p class="alternar">Já tem conta? <a id="ir-login">Entrar</a></p>
@@ -225,6 +231,7 @@
       <button class="ativa" data-aba="turma">Alunos</button>
       <button data-aba="registros">Validar <span id="contador-pendentes"></span></button>
       <button data-aba="turmas">Turmas</button>
+      <button data-aba="convites" class="oculto" id="aba-botao-convites">Convites</button>
       <button data-aba="ajustes">Meus dados</button>
     </div>
 
@@ -275,6 +282,22 @@
         <button id="btn-criar-turma">Criar turma</button>
       </div>
       <div class="grade" id="lista-turmas"></div>
+    </div>
+
+    <div id="aba-convites" class="oculto">
+      <div class="cartao">
+        <h2>Convidar outro professor</h2>
+        <p class="explicacao">
+          Cada convite vale para <strong>uma</strong> conta de professor. Quem entra por ele cria as
+          próprias turmas e não enxerga as suas.
+        </p>
+        <div class="campo">
+          <label for="novo-convite-obs">Para quem é <span class="opcional">(opcional, só para você lembrar)</span></label>
+          <input id="novo-convite-obs" maxlength="120" placeholder="Ex.: Profa. Helena — Psicologia Social">
+        </div>
+        <button id="btn-criar-convite">Gerar convite</button>
+      </div>
+      <div class="grade" id="lista-convites"></div>
     </div>
 
     <div id="aba-ajustes" class="cartao oculto">

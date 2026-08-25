@@ -53,15 +53,29 @@ const atividadeBase = {
   texto: 'Registro cursivo do terceiro encontro. Duas crianças em brincadeira paralela.',
 };
 
-async function criarProfessor(base, nome = 'Profa. Marina', email = 'marina@exemplo.br') {
+// O primeiro professor da instalação entra sem convite.
+async function criarProfessor(base, nome = 'Profa. Marina', email = 'marina@exemplo.br', codigoConvite = null) {
   const c = cliente(base);
   const r = await c('/api/cadastro', {
     metodo: 'POST',
-    corpo: { papel: 'professor', nome, email, senha: 'senha123', instituicao: 'UniExemplo' },
+    corpo: {
+      papel: 'professor', nome, email, senha: 'senha123',
+      instituicao: 'UniExemplo', codigo_convite: codigoConvite,
+    },
   });
   assert.equal(r.status, 200, JSON.stringify(r.dados));
   return c;
 }
+
+async function gerarConvite(convidador, observacao = null) {
+  const r = await convidador('/api/convites', { metodo: 'POST', corpo: { observacao } });
+  assert.equal(r.status, 201, JSON.stringify(r.dados));
+  return r.dados.convite.codigo;
+}
+
+// Professor seguinte só entra com convite de quem já está dentro.
+const criarProfessorConvidado = async (base, convidador, nome, email) =>
+  criarProfessor(base, nome, email, await gerarConvite(convidador, nome));
 
 async function criarTurma(professor, nome, meta_horas = 200, periodo = null) {
   const r = await professor('/api/turmas', { metodo: 'POST', corpo: { nome, meta_horas, periodo } });
@@ -150,19 +164,112 @@ test('a busca por código é pública e mostra a turma antes do cadastro', async
 
 test('e-mail repetido e senha curta são recusados', async () => {
   await comAmbiente(async ({ base }) => {
-    await criarProfessor(base);
+    const marina = await criarProfessor(base);
     const c = cliente(base);
+
     const repetido = await c('/api/cadastro', {
       metodo: 'POST',
-      corpo: { papel: 'professor', nome: 'Outra', email: 'marina@exemplo.br', senha: 'senha123' },
+      corpo: {
+        papel: 'professor', nome: 'Outra', email: 'marina@exemplo.br',
+        senha: 'senha123', codigo_convite: await gerarConvite(marina),
+      },
     });
     assert.equal(repetido.status, 409);
 
     const curta = await c('/api/cadastro', {
       metodo: 'POST',
-      corpo: { papel: 'professor', nome: 'Z', email: 'z@exemplo.br', senha: '123' },
+      corpo: {
+        papel: 'professor', nome: 'Z', email: 'z@exemplo.br',
+        senha: '123', codigo_convite: await gerarConvite(marina),
+      },
     });
     assert.equal(curta.status, 400);
+  });
+});
+
+test('depois do primeiro, criar conta de professor exige convite válido', async () => {
+  await comAmbiente(async ({ base }) => {
+    const marina = await criarProfessor(base);
+    const c = cliente(base);
+
+    const semConvite = await c('/api/cadastro', {
+      metodo: 'POST',
+      corpo: { papel: 'professor', nome: 'Intruso', email: 'intruso@exemplo.br', senha: 'senha123' },
+    });
+    assert.equal(semConvite.status, 400);
+    assert.match(semConvite.dados.erro, /convite/i);
+
+    const codigoErrado = await c('/api/cadastro', {
+      metodo: 'POST',
+      corpo: { papel: 'professor', nome: 'Intruso', email: 'intruso@exemplo.br', senha: 'senha123', codigo_convite: 'ZZZZZZZZZZ' },
+    });
+    assert.equal(codigoErrado.status, 404);
+
+    // Aluno segue entrando sem convite nenhum, só com o código da turma.
+    const turma = await criarTurma(marina, 'Manhã');
+    await criarAluno(base, 'Ana', 'ana@exemplo.br', turma.codigo);
+  });
+});
+
+test('convite vale uma vez só e pode ser revogado enquanto não foi usado', async () => {
+  await comAmbiente(async ({ base }) => {
+    const marina = await criarProfessor(base);
+    const codigo = await gerarConvite(marina, 'Profa. Helena');
+    await criarProfessor(base, 'Profa. Helena', 'helena@exemplo.br', codigo);
+
+    const segundaVez = await cliente(base)('/api/cadastro', {
+      metodo: 'POST',
+      corpo: { papel: 'professor', nome: 'Outro', email: 'outro@exemplo.br', senha: 'senha123', codigo_convite: codigo },
+    });
+    assert.equal(segundaVez.status, 409);
+    assert.match(segundaVez.dados.erro, /já foi usado/i);
+
+    const lista = await marina('/api/convites');
+    assert.equal(lista.dados.convites.length, 1);
+    assert.equal(lista.dados.convites[0].usado_por_nome, 'Profa. Helena');
+    assert.equal(lista.dados.convites[0].observacao, 'Profa. Helena');
+
+    // O usado não some; um novo, ainda livre, pode ser revogado.
+    const usado = lista.dados.convites[0].id;
+    assert.equal((await marina(`/api/convites/${usado}`, { metodo: 'DELETE' })).status, 409);
+
+    const livre = await gerarConvite(marina);
+    const idLivre = (await marina('/api/convites')).dados.convites[0].id;
+    assert.equal((await marina(`/api/convites/${idLivre}`, { metodo: 'DELETE' })).status, 200);
+
+    const revogado = await cliente(base)('/api/cadastro', {
+      metodo: 'POST',
+      corpo: { papel: 'professor', nome: 'Tarde', email: 'tarde@exemplo.br', senha: 'senha123', codigo_convite: livre },
+    });
+    assert.equal(revogado.status, 404);
+  });
+});
+
+test('quem entrou por convite não convida outros, e aluno nem enxerga a rota', async () => {
+  await comAmbiente(async ({ base }) => {
+    const marina = await criarProfessor(base);
+    const helena = await criarProfessorConvidado(base, marina, 'Profa. Helena', 'helena@exemplo.br');
+
+    assert.equal((await helena('/api/convites')).status, 403);
+    assert.equal((await helena('/api/convites', { metodo: 'POST', corpo: {} })).status, 403);
+    assert.equal((await helena('/api/eu')).dados.usuario.pode_convidar, 0);
+    assert.equal((await marina('/api/eu')).dados.usuario.pode_convidar, 1);
+
+    const turma = await criarTurma(marina, 'Manhã');
+    const ana = await criarAluno(base, 'Ana', 'ana@exemplo.br', turma.codigo);
+    assert.equal((await ana('/api/convites')).status, 403);
+
+    // Cada convite só aparece para quem o criou.
+    assert.equal((await marina('/api/convites')).dados.convites.length, 1);
+  });
+});
+
+test('a tela de cadastro sabe se o convite é obrigatório', async () => {
+  await comAmbiente(async ({ base }) => {
+    const anonimo = cliente(base);
+    assert.equal((await anonimo('/api/eu')).dados.convite_obrigatorio, false);
+    await criarProfessor(base);
+    assert.equal((await anonimo('/api/eu')).dados.convite_obrigatorio, true);
   });
 });
 
@@ -271,7 +378,7 @@ test('excluir atividade remove as horas do total', async () => {
 test('um professor não enxerga alunos, registros nem turmas de outro', async () => {
   await comAmbiente(async ({ base }) => {
     const marina = await criarProfessor(base);
-    const carlos = await criarProfessor(base, 'Prof. Carlos', 'carlos@exemplo.br');
+    const carlos = await criarProfessorConvidado(base, marina, 'Prof. Carlos', 'carlos@exemplo.br');
     const turmaMarina = await criarTurma(marina, 'Marina — manhã', 120);
     const turmaCarlos = await criarTurma(carlos, 'Carlos — noite', 300);
 

@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   turma_id    INTEGER REFERENCES turmas(id) ON DELETE SET NULL,
   matricula   TEXT,
   instituicao TEXT,
+  pode_convidar INTEGER NOT NULL DEFAULT 0,
   criado_em  TEXT NOT NULL
 );
 
@@ -50,6 +51,16 @@ CREATE TABLE IF NOT EXISTS sessoes (
   usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
   criado_em  TEXT NOT NULL,
   expira_em  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS convites (
+  id         INTEGER PRIMARY KEY,
+  codigo     TEXT NOT NULL UNIQUE,
+  observacao TEXT,
+  criado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  usado_por  INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  criado_em  TEXT NOT NULL,
+  usado_em   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS config (

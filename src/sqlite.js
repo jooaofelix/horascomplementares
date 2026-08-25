@@ -24,6 +24,9 @@ export function abrirBanco(caminho = process.env.BANCO || CAMINHO_PADRAO) {
 const COLUNAS_NOVAS = [
   ['usuarios', 'turma_id', 'INTEGER REFERENCES turmas(id) ON DELETE SET NULL'],
   ['usuarios', 'matricula', 'TEXT'],
+  ['usuarios', 'instituicao', 'TEXT'],
+  ['turmas', 'professor_id', 'INTEGER REFERENCES usuarios(id) ON DELETE SET NULL'],
+  ['turmas', 'codigo', 'TEXT'],
   ['atividades', 'local', 'TEXT'],
   ['atividades', 'responsavel', 'TEXT'],
   ['atividades', 'data_fim', 'TEXT'],
@@ -38,7 +41,15 @@ function garantirColunas(db) {
     }
   }
   // Só depois das colunas existirem — em bancos antigos elas acabaram de nascer.
-  db.exec('CREATE INDEX IF NOT EXISTS idx_usuarios_turma ON usuarios(turma_id)');
+  db.exec(`
+    UPDATE turmas
+       SET professor_id = (SELECT id FROM usuarios WHERE papel = 'professor' ORDER BY id LIMIT 1)
+     WHERE professor_id IS NULL;
+    UPDATE turmas SET codigo = upper(substr(hex(randomblob(4)), 1, 6)) WHERE codigo IS NULL;
+    CREATE INDEX IF NOT EXISTS idx_usuarios_turma ON usuarios(turma_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_turmas_codigo ON turmas(codigo);
+    CREATE INDEX IF NOT EXISTS idx_turmas_professor ON turmas(professor_id);
+  `);
 }
 
 // Adapta o node:sqlite (síncrono) para a mesma interface assíncrona do D1.

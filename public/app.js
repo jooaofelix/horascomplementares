@@ -5,12 +5,11 @@ const estado = {
   usuario: null,
   categorias: [],
   turmas: [],
-  meta: 200,
-  tituloTurma: '',
   atividades: [],
   resumo: null,
   alunos: [],
   turmaFiltro: '',
+  papelCadastro: 'aluno',
 };
 
 // ---------------------------------------------------------------- utilidades
@@ -23,8 +22,6 @@ async function api(caminho, opcoes = {}) {
   });
   const dados = await resposta.json().catch(() => null);
   if (!resposta.ok || !dados) {
-    // Sem JSON na resposta o servidor caiu antes de responder (limite de CPU,
-    // erro da plataforma): mostrar o código HTTP ajuda a achar a causa.
     throw new Error(dados?.erro || `Falha na comunicação com o servidor (HTTP ${resposta.status}).`);
   }
   return dados;
@@ -46,17 +43,11 @@ function avisar(mensagem, tipo = 'erro', alvo = '#aviso-app') {
   const el = $(alvo);
   el.textContent = mensagem;
   el.className = `aviso ${tipo}`;
-  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   if (tipo === 'ok') setTimeout(() => el.classList.add('oculto'), 4000);
 }
 
 const falhar = (err) => avisar(err.message);
-
-const opcoesTurma = (turmas, selecionada, primeira) =>
-  [primeira, ...turmas.map((t) => {
-    const rotulo = t.periodo ? `${t.nome} — ${t.periodo}` : t.nome;
-    return `<option value="${t.id}" ${String(t.id) === String(selecionada) ? 'selected' : ''}>${escapar(rotulo)}</option>`;
-  })].filter(Boolean).join('');
 
 // ---------------------------------------------------------------- entrada
 
@@ -65,16 +56,46 @@ function mostrarEntrada() {
   $('#tela-entrada').classList.remove('oculto');
 }
 
-$('#ir-cadastro').onclick = () => {
-  $('#form-login').classList.add('oculto');
-  $('#form-cadastro').classList.remove('oculto');
+const trocarFormulario = (mostrarCadastro) => {
+  $('#form-login').classList.toggle('oculto', mostrarCadastro);
+  $('#form-cadastro').classList.toggle('oculto', !mostrarCadastro);
   $('#aviso-entrada').classList.add('oculto');
 };
-$('#ir-login').onclick = () => {
-  $('#form-cadastro').classList.add('oculto');
-  $('#form-login').classList.remove('oculto');
-  $('#aviso-entrada').classList.add('oculto');
-};
+
+$('#ir-cadastro').onclick = () => trocarFormulario(true);
+$('#ir-login').onclick = () => trocarFormulario(false);
+
+$$('.escolha button').forEach((botao) => {
+  botao.onclick = () => {
+    estado.papelCadastro = botao.dataset.papel;
+    $$('.escolha button').forEach((b) => b.classList.toggle('ativa', b === botao));
+    const aluno = estado.papelCadastro === 'aluno';
+    $('#campos-aluno').classList.toggle('oculto', !aluno);
+    $$('.campo-aluno').forEach((c) => c.classList.toggle('oculto', !aluno));
+    $$('.campo-professor').forEach((c) => c.classList.toggle('oculto', aluno));
+    $('#btn-criar-conta').textContent = aluno ? 'Entrar na turma' : 'Criar minha conta';
+  };
+});
+
+// Confere o código enquanto o aluno digita: ele vê em qual turma vai entrar.
+let conferindo;
+$('#cad-codigo-turma').addEventListener('input', (e) => {
+  const codigo = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const caixa = $('#confirmacao-turma');
+  clearTimeout(conferindo);
+  if (codigo.length < 6) return caixa.classList.add('oculto');
+  conferindo = setTimeout(async () => {
+    try {
+      const { turma } = await api('/api/turmas/localizar', { metodo: 'POST', corpo: { codigo } });
+      caixa.innerHTML = `Turma <strong>${escapar(turma.nome)}</strong>${
+        turma.professor_nome ? ' · Prof(a). ' + escapar(turma.professor_nome) : ''
+      }`;
+      caixa.classList.remove('oculto');
+    } catch {
+      caixa.classList.add('oculto');
+    }
+  }, 400);
+});
 
 $('#form-login').onsubmit = async (e) => {
   e.preventDefault();
@@ -96,12 +117,13 @@ $('#form-cadastro').onsubmit = async (e) => {
     await api('/api/cadastro', {
       metodo: 'POST',
       corpo: {
+        papel: estado.papelCadastro,
         nome: $('#cad-nome').value,
         email: $('#cad-email').value,
         senha: $('#cad-senha').value,
-        turma_id: $('#cad-turma').value || null,
+        codigo_turma: $('#cad-codigo-turma').value,
         matricula: $('#cad-matricula').value,
-        codigo_professor: $('#cad-codigo').value,
+        instituicao: $('#cad-instituicao').value,
       },
     });
     await iniciar();
@@ -116,12 +138,14 @@ $('#btn-sair').onclick = async () => {
   location.reload();
 };
 
-$('#btn-exportar').onclick = () => {
+const exportar = () => {
   const filtro = estado.usuario?.papel === 'professor' && estado.turmaFiltro
     ? `?turma_id=${estado.turmaFiltro}`
     : '';
   window.location.href = `/api/exportar.csv${filtro}`;
 };
+$('#btn-exportar-aluno').onclick = exportar;
+$('#btn-exportar-prof').onclick = exportar;
 
 // ---------------------------------------------------------------- aluno
 
@@ -134,25 +158,20 @@ function desenharResumo() {
   $('#n-registros').textContent = r.registros;
 
   const pct = (v) => Math.min(100, (v / Math.max(r.meta, 1)) * 100);
-  const larguraValidado = pct(r.validado);
-  $('#barra-validado').style.width = `${larguraValidado}%`;
-  $('#barra-pendente').style.width = `${Math.max(0, pct(r.declarado) - larguraValidado)}%`;
+  const validado = pct(r.validado);
+  $('#barra-validado').style.width = `${validado}%`;
+  $('#barra-pendente').style.width = `${Math.max(0, pct(r.declarado) - validado)}%`;
 
   const falta = Math.max(0, r.meta - r.validado);
   $('#falta-meta').textContent = falta > 0
-    ? `Faltam ${horas(falta)} validadas para você fechar a meta.`
-    : 'Você já atingiu a meta de horas validadas.';
-
-  const turma = estado.usuario?.turma_nome;
-  $('#explicacao-progresso').textContent = turma
-    ? `Turma: ${turma}`
-    : 'Você ainda não escolheu uma turma — ajuste em "Seus dados", no fim da página.';
+    ? `Faltam ${horas(falta)} validadas para fechar a meta.`
+    : 'Meta de horas validadas atingida.';
 }
 
 function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao = false } = {}) {
   const selo = a.validado
-    ? `<span class="selo ok">validada${a.validado_por_nome ? ' por ' + escapar(a.validado_por_nome) : ''}</span>`
-    : '<span class="selo esperando">aguardando validação</span>';
+    ? `<span class="selo ok">validada${a.validado_por_nome ? ' · ' + escapar(a.validado_por_nome) : ''}</span>`
+    : '<span class="selo esperando">aguardando</span>';
 
   const periodo = a.data_fim && a.data_fim !== a.data_atividade
     ? `${dataBr(a.data_atividade)} a ${dataBr(a.data_fim)}`
@@ -168,36 +187,9 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
     a.comprovante ? ['Comprovante', a.comprovante] : null,
   ].filter(Boolean);
 
-  const ficha = `<div class="ficha">${itens
-    .map(([r, v]) => `<div><div class="rotulo">${r}</div>${escapar(v)}</div>`)
-    .join('')}</div>`;
-
-  const observacao = a.observacao
-    ? `<div class="observacao"><strong>Professor:</strong> ${escapar(a.observacao)}</div>`
-    : '';
-
   const analise = a.texto
-    ? `<details><summary>Ver análise (${a.texto.length.toLocaleString('pt-BR')} caracteres${
-        a.arquivo_nome ? ' · ' + escapar(a.arquivo_nome) : ''
-      })</summary><pre>${escapar(a.texto)}</pre></details>`
-    : '<p class="vazio">Sem texto de análise anexado.</p>';
-
-  const botoesEdicao = comEdicao
-    ? `<div class="acoes" style="margin-top:16px">
-         <button class="secundario mini" data-editar="${a.id}">Editar</button>
-         <button class="perigo mini" data-excluir="${a.id}">Excluir</button>
-       </div>`
-    : '';
-
-  const botoesValidacao = comValidacao
-    ? `<div class="acoes" style="margin-top:16px">
-         <input style="flex:2 1 260px" placeholder="Observação para o aluno (opcional)"
-                data-obs="${a.id}" value="${escapar(a.observacao || '')}">
-         ${a.validado
-           ? `<button class="secundario mini" data-validar="${a.id}" data-valor="0">Remover validação</button>`
-           : `<button class="mini" data-validar="${a.id}" data-valor="1">Validar horas</button>`}
-       </div>`
-    : '';
+    ? `<details><summary>Ver análise (${a.texto.length.toLocaleString('pt-BR')} caracteres)</summary><pre>${escapar(a.texto)}</pre></details>`
+    : '<p class="vazio">Sem texto de análise.</p>';
 
   return `
     <article class="atividade">
@@ -206,11 +198,26 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
         ${selo}
         <span class="horas">${horas(a.horas)}</span>
       </div>
-      ${ficha}
-      ${observacao}
+      <div class="ficha">${itens
+        .map(([r, v]) => `<div><div class="rotulo">${r}</div>${escapar(v)}</div>`)
+        .join('')}</div>
+      ${a.observacao ? `<div class="observacao"><strong>Professor:</strong> ${escapar(a.observacao)}</div>` : ''}
       ${analise}
-      ${botoesEdicao}
-      ${botoesValidacao}
+      ${comEdicao
+        ? `<div class="acoes" style="margin-top:16px">
+             <button class="secundario mini" data-editar="${a.id}">Editar</button>
+             <button class="perigo mini" data-excluir="${a.id}">Excluir</button>
+           </div>`
+        : ''}
+      ${comValidacao
+        ? `<div style="margin-top:16px">
+             <input placeholder="Observação para o aluno (opcional)" data-obs="${a.id}"
+                    value="${escapar(a.observacao || '')}" style="margin-bottom:10px">
+             ${a.validado
+               ? `<button class="secundario mini" data-validar="${a.id}" data-valor="0">Remover validação</button>`
+               : `<button data-validar="${a.id}" data-valor="1">Validar ${horas(a.horas)}</button>`}
+           </div>`
+        : ''}
     </article>`;
 }
 
@@ -228,20 +235,25 @@ function desenharListaAluno() {
   const lista = filtrar(estado.atividades, $('#busca-aluno').value, $('#filtro-status-aluno').value);
   $('#lista-aluno').innerHTML = lista.length
     ? lista.map((a) => cartaoAtividade(a, { comEdicao: true })).join('')
-    : '<p class="vazio">Nenhuma atividade lançada ainda.</p>';
+    : '<p class="vazio">Nenhuma atividade ainda. Toque em “Lançar nova atividade”.</p>';
 }
 
-// ---- formulário de atividade ----
+// ---- formulário ----
 
 const formulario = { arquivoNome: null };
+
+function abrirFormulario(abrir = true) {
+  $('#cartao-formulario').classList.toggle('oculto', !abrir);
+  $('#btn-abrir-form').classList.toggle('oculto', abrir);
+  if (abrir) $('#cartao-formulario').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 function limparFormulario() {
   $('#form-atividade').reset();
   $('#ativ-id').value = '';
   $('#ativ-data').value = new Date().toISOString().slice(0, 10);
-  $('#titulo-formulario').textContent = 'Lançar uma atividade';
+  $('#titulo-formulario').textContent = 'Nova atividade';
   $('#btn-salvar').textContent = 'Salvar atividade';
-  $('#btn-cancelar').classList.add('oculto');
   formulario.arquivoNome = null;
   atualizarContador();
 }
@@ -249,13 +261,16 @@ function limparFormulario() {
 function atualizarContador() {
   const n = $('#ativ-texto').value.length;
   $('#contador-texto').textContent =
-    `${n.toLocaleString('pt-BR')} caracteres${formulario.arquivoNome ? ' · de ' + formulario.arquivoNome : ''}`;
+    `${n.toLocaleString('pt-BR')} caracteres${formulario.arquivoNome ? ' · ' + formulario.arquivoNome : ''}`;
 }
 
 $('#ativ-texto').addEventListener('input', atualizarContador);
+$('#btn-abrir-form').onclick = () => { limparFormulario(); abrirFormulario(true); };
+$('#btn-cancelar').onclick = () => { limparFormulario(); abrirFormulario(false); };
 
 $('#form-atividade').onsubmit = async (e) => {
   e.preventDefault();
+  const id = $('#ativ-id').value;
   const corpo = {
     titulo: $('#ativ-titulo').value,
     categoria: $('#ativ-categoria').value,
@@ -268,21 +283,16 @@ $('#form-atividade').onsubmit = async (e) => {
     texto: $('#ativ-texto').value,
     arquivo_nome: formulario.arquivoNome,
   };
-  const id = $('#ativ-id').value;
   try {
     await api(id ? `/api/atividades/${id}` : '/api/atividades', { metodo: id ? 'PUT' : 'POST', corpo });
     limparFormulario();
+    abrirFormulario(false);
     await carregarAtividades();
-    avisar(
-      id ? 'Atividade atualizada — ela volta para a fila de validação.' : 'Atividade lançada.',
-      'ok',
-    );
+    avisar(id ? 'Atividade atualizada — volta para a fila de validação.' : 'Atividade lançada.', 'ok');
   } catch (err) {
     falhar(err);
   }
 };
-
-$('#btn-cancelar').onclick = limparFormulario;
 
 $('#lista-aluno').addEventListener('click', async (e) => {
   const idEditar = e.target.dataset.editar;
@@ -291,6 +301,7 @@ $('#lista-aluno').addEventListener('click', async (e) => {
   if (idEditar) {
     const a = estado.atividades.find((x) => String(x.id) === idEditar);
     if (!a) return;
+    abrirFormulario(true);
     $('#ativ-id').value = a.id;
     $('#ativ-titulo').value = a.titulo;
     $('#ativ-categoria').value = a.categoria;
@@ -305,8 +316,6 @@ $('#lista-aluno').addEventListener('click', async (e) => {
     atualizarContador();
     $('#titulo-formulario').textContent = 'Editando atividade';
     $('#btn-salvar').textContent = 'Salvar alterações';
-    $('#btn-cancelar').classList.remove('oculto');
-    $('#form-atividade').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   if (idExcluir) {
@@ -327,8 +336,13 @@ $('#btn-salvar-meus').onclick = async () => {
   try {
     await api('/api/eu', {
       metodo: 'PUT',
-      corpo: { turma_id: $('#meus-turma').value || null, matricula: $('#meus-matricula').value },
+      corpo: {
+        nome: $('#meus-nome').value,
+        matricula: $('#meus-matricula').value,
+        codigo_turma: $('#meus-codigo').value,
+      },
     });
+    $('#meus-codigo').value = '';
     avisar('Dados salvos.', 'ok');
     await iniciar();
   } catch (err) {
@@ -336,7 +350,7 @@ $('#btn-salvar-meus').onclick = async () => {
   }
 };
 
-// ---- leitura de arquivo de texto ----
+// ---- arquivo de texto ----
 
 const zona = $('#zona-arquivo');
 const entradaArquivo = $('#entrada-arquivo');
@@ -355,9 +369,7 @@ entradaArquivo.onchange = () => {
 };
 
 async function lerArquivo(arquivo) {
-  if (arquivo.size > 2 * 1024 * 1024) {
-    return avisar('Arquivo grande demais (limite de 2 MB de texto).');
-  }
+  if (arquivo.size > 2 * 1024 * 1024) return avisar('Arquivo grande demais (limite de 2 MB).');
   const conteudo = await arquivo.text();
   const atual = $('#ativ-texto').value.trim();
   $('#ativ-texto').value = atual ? `${atual}\n\n${conteudo}` : conteudo;
@@ -376,8 +388,10 @@ $$('.abas button').forEach((botao) => {
     for (const aba of ['turma', 'registros', 'turmas', 'ajustes']) {
       $(`#aba-${aba}`).classList.toggle('oculto', aba !== botao.dataset.aba);
     }
-    const comFiltro = ['turma', 'registros'].includes(botao.dataset.aba);
-    $('#filtro-turma-cartao').classList.toggle('oculto', !comFiltro);
+    $('#filtro-turma-cartao').classList.toggle(
+      'oculto',
+      !['turma', 'registros'].includes(botao.dataset.aba) || estado.turmas.length < 2,
+    );
   };
 });
 
@@ -386,34 +400,27 @@ $('#filtro-turma').addEventListener('change', async (e) => {
   await carregarProfessor();
 });
 
-function desenharTurma() {
-  const linhas = estado.alunos.map((a) => {
-    const meta = Math.max(a.meta || estado.meta, 1);
-    const pct = Math.min(100, (a.validado / meta) * 100);
-    const pctDeclarado = Math.max(0, Math.min(100, (a.declarado / meta) * 100) - pct);
-    return `<tr>
-      <td>
-        ${escapar(a.nome)}
-        <div class="sub">${escapar(a.turma_nome || 'sem turma')}${a.matricula ? ' · ' + escapar(a.matricula) : ''}</div>
-      </td>
-      <td style="min-width:170px">
-        <div class="barra" style="margin-top:0;height:12px">
-          <i class="validado" style="width:${pct}%"></i><i class="pendente" style="width:${pctDeclarado}%"></i>
-        </div>
-        <div class="sub">meta ${horas(meta)}</div>
-      </td>
-      <td class="num">${horas(a.validado)}</td>
-      <td class="num">${horas(a.declarado)}</td>
-      <td class="num">${a.pendentes}</td>
-    </tr>`;
-  });
-
-  $('#tabela-turma').innerHTML = `
-    <thead><tr>
-      <th>Aluno</th><th>Progresso</th>
-      <th class="num">Validadas</th><th class="num">Lançadas</th><th class="num">A validar</th>
-    </tr></thead>
-    <tbody>${linhas.join('') || '<tr><td colspan="5" class="vazio">Nenhum aluno nesta seleção ainda.</td></tr>'}</tbody>`;
+function desenharAlunos() {
+  $('#lista-alunos').innerHTML = estado.alunos.length
+    ? estado.alunos.map((a) => {
+        const meta = Math.max(a.meta, 1);
+        const pct = Math.min(100, (a.validado / meta) * 100);
+        const pendente = Math.max(0, Math.min(100, (a.declarado / meta) * 100) - pct);
+        return `<div class="item">
+          <div class="nome">${escapar(a.nome)}</div>
+          <div class="sub">${escapar(a.turma_nome || 'sem turma')}${a.matricula ? ' · ' + escapar(a.matricula) : ''}</div>
+          <div class="barra" style="margin-top:12px;height:12px">
+            <i class="validado" style="width:${pct}%"></i><i class="pendente" style="width:${pendente}%"></i>
+          </div>
+          <div class="numeros-linha">
+            <span><b>${horas(a.validado)}</b> validadas</span>
+            <span><b>${horas(a.declarado)}</b> lançadas</span>
+            <span>meta ${horas(meta)}</span>
+            ${a.pendentes > 0 ? `<span class="selo esperando">${a.pendentes} a validar</span>` : ''}
+          </div>
+        </div>`;
+      }).join('')
+    : '<p class="vazio">Nenhum aluno entrou nas suas turmas ainda. Passe o código da turma para eles.</p>';
 }
 
 function desenharListaProfessor() {
@@ -421,6 +428,9 @@ function desenharListaProfessor() {
   $('#lista-prof').innerHTML = lista.length
     ? lista.map((a) => cartaoAtividade(a, { comAluno: true, comValidacao: true })).join('')
     : '<p class="vazio">Nada para mostrar com esses filtros.</p>';
+
+  const pendentes = estado.atividades.filter((a) => !a.validado).length;
+  $('#contador-pendentes').textContent = pendentes ? `(${pendentes})` : '';
 }
 
 $('#lista-prof').addEventListener('click', async (e) => {
@@ -433,10 +443,7 @@ $('#lista-prof').addEventListener('click', async (e) => {
       corpo: { validado: validando, observacao: $(`[data-obs="${id}"]`)?.value || '' },
     });
     await carregarProfessor();
-    avisar(
-      validando ? 'Horas validadas — o registro sai da fila de pendentes.' : 'Validação removida.',
-      'ok',
-    );
+    avisar(validando ? 'Horas validadas.' : 'Validação removida.', 'ok');
   } catch (err) {
     falhar(err);
   }
@@ -448,20 +455,25 @@ $('#filtro-status-prof').addEventListener('change', desenharListaProfessor);
 // ---- turmas ----
 
 function desenharTurmas() {
-  const linhas = estado.turmas.map((t) => `<tr>
-    <td><input data-turma-nome="${t.id}" value="${escapar(t.nome)}"></td>
-    <td><input data-turma-periodo="${t.id}" value="${escapar(t.periodo || '')}" placeholder="opcional"></td>
-    <td style="width:120px"><input data-turma-meta="${t.id}" type="number" min="1" step="1" value="${t.meta_horas}"></td>
-    <td class="num">${t.alunos}</td>
-    <td class="acoes">
-      <button class="secundario mini" data-salvar-turma="${t.id}">Salvar</button>
-      <button class="perigo mini" data-excluir-turma="${t.id}">Excluir</button>
-    </td>
-  </tr>`);
-
-  $('#tabela-turmas').innerHTML = `
-    <thead><tr><th>Turma</th><th>Período</th><th>Meta (h)</th><th class="num">Alunos</th><th></th></tr></thead>
-    <tbody>${linhas.join('') || '<tr><td colspan="5" class="vazio">Nenhuma turma criada ainda. Crie a primeira abaixo.</td></tr>'}</tbody>`;
+  $('#lista-turmas').innerHTML = estado.turmas.length
+    ? estado.turmas.map((t) => `<div class="item">
+        <div class="nome">${escapar(t.nome)}</div>
+        <div class="sub">${escapar(t.periodo || 'sem período')} · ${t.alunos} aluno(s)</div>
+        <div class="codigo-turma">
+          <span class="valor">${escapar(t.codigo || '——')}</span>
+          <button class="secundario mini" data-copiar="${escapar(t.codigo || '')}">Copiar convite</button>
+        </div>
+        <div class="linha">
+          <div class="campo"><label>Nome</label><input data-turma-nome="${t.id}" value="${escapar(t.nome)}"></div>
+          <div class="campo"><label>Período</label><input data-turma-periodo="${t.id}" value="${escapar(t.periodo || '')}"></div>
+          <div class="campo"><label>Meta (h)</label><input data-turma-meta="${t.id}" type="number" min="1" inputmode="numeric" value="${t.meta_horas}"></div>
+        </div>
+        <div class="acoes">
+          <button class="secundario mini" data-salvar-turma="${t.id}">Salvar</button>
+          <button class="perigo mini" data-excluir-turma="${t.id}">Excluir</button>
+        </div>
+      </div>`).join('')
+    : '<p class="vazio">Você ainda não tem turmas. Crie a primeira acima.</p>';
 }
 
 $('#btn-criar-turma').onclick = async () => {
@@ -477,31 +489,35 @@ $('#btn-criar-turma').onclick = async () => {
     $('#nova-turma-nome').value = '';
     $('#nova-turma-periodo').value = '';
     await carregarProfessor();
-    avisar('Turma criada.', 'ok');
+    avisar('Turma criada. Passe o código para os alunos.', 'ok');
   } catch (err) {
     falhar(err);
   }
 };
 
-$('#tabela-turmas').addEventListener('click', async (e) => {
-  const idSalvar = e.target.dataset.salvarTurma;
-  const idExcluir = e.target.dataset.excluirTurma;
+$('#lista-turmas').addEventListener('click', async (e) => {
+  const { salvarTurma, excluirTurma, copiar } = e.target.dataset;
   try {
-    if (idSalvar) {
-      await api(`/api/turmas/${idSalvar}`, {
+    if (copiar !== undefined) {
+      const convite = `Entre no controle de horas complementares: ${location.origin} — código da turma: ${copiar}`;
+      await navigator.clipboard.writeText(convite);
+      avisar('Convite copiado — cole no grupo da turma.', 'ok');
+    }
+    if (salvarTurma) {
+      await api(`/api/turmas/${salvarTurma}`, {
         metodo: 'PUT',
         corpo: {
-          nome: $(`[data-turma-nome="${idSalvar}"]`).value,
-          periodo: $(`[data-turma-periodo="${idSalvar}"]`).value,
-          meta_horas: $(`[data-turma-meta="${idSalvar}"]`).value,
+          nome: $(`[data-turma-nome="${salvarTurma}"]`).value,
+          periodo: $(`[data-turma-periodo="${salvarTurma}"]`).value,
+          meta_horas: $(`[data-turma-meta="${salvarTurma}"]`).value,
         },
       });
       await carregarProfessor();
       avisar('Turma atualizada.', 'ok');
     }
-    if (idExcluir) {
+    if (excluirTurma) {
       if (!confirm('Excluir esta turma?')) return;
-      await api(`/api/turmas/${idExcluir}`, { metodo: 'DELETE' });
+      await api(`/api/turmas/${excluirTurma}`, { metodo: 'DELETE' });
       await carregarProfessor();
       avisar('Turma excluída.', 'ok');
     }
@@ -510,15 +526,14 @@ $('#tabela-turmas').addEventListener('click', async (e) => {
   }
 });
 
-$('#btn-salvar-config').onclick = async () => {
+$('#btn-salvar-perfil').onclick = async () => {
   try {
-    const dados = await api('/api/config', {
+    await api('/api/eu', {
       metodo: 'PUT',
-      corpo: { meta_horas: $('#cfg-meta').value, titulo_turma: $('#cfg-titulo').value },
+      corpo: { nome: $('#cfg-nome').value, instituicao: $('#cfg-instituicao').value },
     });
-    estado.meta = dados.meta_horas;
-    $('#titulo-turma').textContent = dados.titulo_turma;
-    avisar('Ajustes salvos.', 'ok');
+    avisar('Dados salvos.', 'ok');
+    await iniciar();
   } catch (err) {
     falhar(err);
   }
@@ -543,63 +558,60 @@ async function carregarProfessor() {
   estado.atividades = registros.atividades;
   estado.alunos = turma.alunos;
   estado.turmas = turma.turmas;
-  estado.meta = turma.meta_horas;
 
-  $('#filtro-turma').innerHTML = opcoesTurma(
-    estado.turmas,
-    estado.turmaFiltro,
+  $('#filtro-turma').innerHTML = [
     '<option value="">Todas as turmas</option>',
+    ...estado.turmas.map((t) => {
+      const rotulo = t.periodo ? `${t.nome} — ${t.periodo}` : t.nome;
+      return `<option value="${t.id}" ${String(t.id) === String(estado.turmaFiltro) ? 'selected' : ''}>${escapar(rotulo)}</option>`;
+    }),
+  ].join('');
+  const abaAtiva = document.querySelector('.abas button.ativa')?.dataset.aba;
+  $('#filtro-turma-cartao').classList.toggle(
+    'oculto',
+    estado.turmas.length < 2 || !['turma', 'registros'].includes(abaAtiva),
   );
-  desenharTurma();
+
+  desenharAlunos();
   desenharListaProfessor();
   desenharTurmas();
 }
 
 async function iniciar() {
   const dados = await api('/api/eu');
-  Object.assign(estado, {
-    usuario: dados.usuario,
-    categorias: dados.categorias,
-    turmas: dados.turmas,
-    meta: dados.meta_horas,
-    tituloTurma: dados.titulo_turma,
-  });
+  estado.usuario = dados.usuario;
+  estado.categorias = dados.categorias;
 
-  if (!estado.usuario) {
-    $('#cad-turma').innerHTML = opcoesTurma(
-      estado.turmas,
-      '',
-      '<option value="">Escolha a sua turma</option>',
-    );
-    $('#campo-turma-cadastro').classList.toggle('oculto', estado.turmas.length === 0);
-    return mostrarEntrada();
-  }
+  if (!estado.usuario) return mostrarEntrada();
 
   $('#tela-entrada').classList.add('oculto');
   $('#tela-app').classList.remove('oculto');
-  $('#titulo-turma').textContent = estado.tituloTurma;
-  $('#identificacao').textContent =
-    `${estado.usuario.nome} · ${estado.usuario.papel === 'professor' ? 'professor(a)' : 'aluno(a)'}`;
 
-  if (estado.usuario.papel === 'professor') {
+  const u = estado.usuario;
+  if (u.papel === 'professor') {
+    $('#identificacao').textContent = [u.nome, u.instituicao].filter(Boolean).join(' · ');
     $('#painel-professor').classList.remove('oculto');
     $('#painel-aluno').classList.add('oculto');
-    $('#cfg-meta').value = estado.meta;
-    $('#cfg-titulo').value = estado.tituloTurma;
+    $('#cfg-nome').value = u.nome;
+    $('#cfg-instituicao').value = u.instituicao || '';
+    estado.turmas = dados.turmas || [];
     await carregarProfessor();
   } else {
+    const prof = dados.professor;
+    $('#identificacao').textContent = [u.nome, u.turma_nome].filter(Boolean).join(' · ');
+    $('#explicacao-progresso').textContent = u.turma_nome
+      ? `Turma ${u.turma_nome}${prof?.nome ? ' · Prof(a). ' + prof.nome : ''}`
+      : 'Você ainda não está em uma turma — informe o código em “Seus dados”.';
     $('#painel-aluno').classList.remove('oculto');
     $('#painel-professor').classList.add('oculto');
     $('#ativ-categoria').innerHTML = estado.categorias
       .map((c) => `<option value="${escapar(c)}">${escapar(c)}</option>`)
       .join('');
-    $('#meus-turma').innerHTML = opcoesTurma(
-      estado.turmas,
-      estado.usuario.turma_id,
-      '<option value="">Sem turma</option>',
-    );
-    $('#meus-matricula').value = estado.usuario.matricula || '';
+    $('#meus-nome').value = u.nome;
+    $('#meus-matricula').value = u.matricula || '';
+    estado.resumo = dados.resumo;
     limparFormulario();
+    abrirFormulario(false);
     await carregarAtividades();
   }
 }

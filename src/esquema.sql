@@ -1,11 +1,13 @@
 -- Esquema único: roda no SQLite local (node:sqlite) e no Cloudflare D1.
 
 CREATE TABLE IF NOT EXISTS turmas (
-  id         INTEGER PRIMARY KEY,
-  nome       TEXT NOT NULL,
-  periodo    TEXT,
-  meta_horas REAL NOT NULL DEFAULT 200,
-  criado_em  TEXT NOT NULL
+  id           INTEGER PRIMARY KEY,
+  nome         TEXT NOT NULL,
+  periodo      TEXT,
+  codigo       TEXT,
+  professor_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  meta_horas   REAL NOT NULL DEFAULT 200,
+  criado_em    TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS usuarios (
@@ -13,9 +15,10 @@ CREATE TABLE IF NOT EXISTS usuarios (
   nome       TEXT NOT NULL,
   email      TEXT NOT NULL UNIQUE,
   senha_hash TEXT NOT NULL,
-  papel      TEXT NOT NULL DEFAULT 'aluno',
-  turma_id   INTEGER REFERENCES turmas(id) ON DELETE SET NULL,
-  matricula  TEXT,
+  papel       TEXT NOT NULL DEFAULT 'aluno',
+  turma_id    INTEGER REFERENCES turmas(id) ON DELETE SET NULL,
+  matricula   TEXT,
+  instituicao TEXT,
   criado_em  TEXT NOT NULL
 );
 

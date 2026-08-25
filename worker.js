@@ -19,10 +19,7 @@ export default {
     }
 
     const bd = adaptarD1(env.DB);
-    const rotas = criarRotas(bd, {
-      codigoProfessor: env.CODIGO_PROFESSOR,
-      iteracoesSenha: env.ITERACOES_SENHA,
-    });
+    const rotas = criarRotas(bd, { iteracoesSenha: env.ITERACOES_SENHA });
 
     try {
       const token = lerCookies(request.headers.get('cookie')).sessao;

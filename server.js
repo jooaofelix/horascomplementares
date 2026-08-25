@@ -75,10 +75,7 @@ function servirEstatico(res, caminhoUrl) {
 }
 
 export function criarServidor(bd = bancoLocal()) {
-  const rotas = criarRotas(bd, {
-    codigoProfessor: process.env.CODIGO_PROFESSOR,
-    iteracoesSenha: process.env.ITERACOES_SENHA,
-  });
+  const rotas = criarRotas(bd, { iteracoesSenha: process.env.ITERACOES_SENHA });
 
   const servidor = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);

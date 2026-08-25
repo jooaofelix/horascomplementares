@@ -11,8 +11,6 @@ directory = "./public"
 binding = "ASSETS"
 
 [vars]
-# Troque este código antes de passar o endereço para a turma.
-CODIGO_PROFESSOR = "tecnicas-de-observacao"
 # Custo do PBKDF2 nas senhas. 10000 cabe no limite de 10ms de CPU do plano
 # gratuito; no plano pago dá para subir para 100000 sem quebrar contas antigas
 # (cada hash guarda o número de iterações com que foi criado).

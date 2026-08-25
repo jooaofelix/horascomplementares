@@ -1,9 +1,16 @@
-# Horas Complementares — Psicologia / Técnicas de Observação
+# Horas Complementares
 
-Sistema web para a turma registrar horas complementares junto com a **análise escrita** de cada
-atividade: o aluno digita direto no navegador ou solta um arquivo `.txt` / `.md` no formulário, e o
-texto fica guardado junto com as horas. O professor acompanha o total de cada aluno e coloca o selo
-de validação nos registros que conferiu.
+Sistema web para alunos registrarem horas complementares junto com a **análise escrita** de cada
+atividade: o aluno digita direto no navegador ou anexa um arquivo `.txt` / `.md`, e o texto fica
+guardado junto com as horas. O professor acompanha o total de cada aluno e coloca o selo de
+validação nos registros que conferiu.
+
+Cada professor é dono das próprias turmas: ele se cadastra sozinho, cria as turmas e recebe um
+**código** por turma. Só quem tem o código entra, e um professor nunca enxerga os alunos de outro —
+dá para vários professores usarem a mesma instalação.
+
+A tela foi desenhada primeiro para o celular, que é onde o aluno lança as horas, e se abre em
+colunas no computador.
 
 O mesmo código roda de dois jeitos:
 
@@ -38,8 +45,7 @@ npm run banco:criar         # cria o banco D1
 ```
 
 O `banco:criar` termina imprimindo um bloco com `database_id = "..."`. Copie esse id e cole no
-`wrangler.toml`, no lugar de `PREENCHA_COM_O_ID_DO_SEU_BANCO`. Aproveite e troque, no mesmo arquivo,
-o `CODIGO_PROFESSOR` por um código só seu.
+`wrangler.toml`, no lugar de `PREENCHA_COM_O_ID_DO_SEU_BANCO`.
 
 ```bash
 npm run banco:migrar        # cria as tabelas no D1
@@ -57,6 +63,7 @@ vez cada:
 
 ```bash
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/002-turmas-e-campos.sql
+npx wrangler d1 execute horas-complementares --remote --file=migracoes/003-saas-multiprofessor.sql
 ```
 
 O banco local não precisa disso: ao iniciar, o `npm start` confere e cria sozinho as colunas que
@@ -72,26 +79,28 @@ npx wrangler dev --local
 > Os dois modos têm bancos separados: o que você cadastrar em `npm start` não aparece no site
 > publicado, e vice-versa.
 
-## Turmas
+## Turmas e códigos
 
-Uma professora pode atender várias turmas no mesmo sistema. Na aba **Minhas turmas** ela cria cada
-turma com nome, período e **meta de horas própria**; o aluno escolhe a sua turma ao criar a conta (e
-pode corrigir depois, em *Seus dados*).
+Na aba **Turmas**, o professor cria cada turma com nome, período e **meta de horas própria**. Cada
+turma ganha um código de 6 caracteres (ex.: `9PFQ3K`), sem letras ambíguas para não confundir na
+hora de ditar em sala. O botão **Copiar convite** copia o endereço do sistema junto com o código,
+pronto para colar no grupo da turma.
 
-O seletor **Turma que você está vendo** filtra de uma vez a lista de alunos, a fila de validação e a
-planilha exportada — dá para fechar as horas de uma turma sem que as outras atrapalhem.
+O aluno digita esse código ao criar a conta — antes de confirmar, a tela mostra em qual turma e com
+qual professor ele vai entrar. Se errar de turma, ele mesmo corrige em *Seus dados* com o código
+certo.
+
+Com mais de uma turma aparece o seletor **Turma que você está vendo**, que filtra de uma vez a lista
+de alunos, a fila de validação e a planilha exportada.
 
 ## Contas
 
-- **Aluno**: cria a conta sozinho na tela de cadastro (nome, e-mail e senha).
-- **Professor**: cria a conta na mesma tela, preenchendo o campo **código de professor**.
+- **Aluno**: escolhe *Sou aluno(a)* na tela de cadastro e informa o código da turma.
+- **Professor**: escolhe *Sou professor(a)* — o cadastro é livre, sem código de convite.
 
-O código padrão é `tecnicas-de-observacao`. Troque antes de usar com a turma:
-
-- rodando local: `CODIGO_PROFESSOR="algum-codigo-so-seu" npm start`
-- publicado: edite `CODIGO_PROFESSOR` em `wrangler.toml` e rode `npm run deploy`
-
-Pode haver mais de um professor — todos enxergam a turma inteira.
+Como o cadastro de professor é aberto, qualquer pessoa com o endereço pode criar uma conta de
+professor e montar as próprias turmas. Ela não enxerga nada das suas: cada professor só alcança os
+alunos das turmas que ele mesmo criou.
 
 ## Como o aluno usa
 
@@ -127,13 +136,13 @@ o professor sempre valida a versão que está lá.
 
 ## O que o professor vê
 
-- **Alunos**: panorama com horas validadas, lançadas e quantos registros faltam conferir por aluno,
-  com a meta da turma de cada um.
-- **Validar horas**: fila de atividades, com busca por aluno, atividade, local ou trecho da análise e
-  filtro por status (começa mostrando só as pendentes).
-- **Minhas turmas**: criar, renomear, ajustar a meta e excluir turmas (uma turma com alunos não é
-  excluída por engano).
-- **Ajustes**: título que aparece no topo e a meta padrão para alunos sem turma.
+- **Alunos**: um cartão por aluno com horas validadas, lançadas, a meta da turma dele e quantos
+  registros esperam validação.
+- **Validar** (com a contagem de pendentes ao lado): fila de atividades, com busca por aluno,
+  atividade, local ou trecho da análise.
+- **Turmas**: criar, renomear, ajustar a meta, ver o código e excluir turmas (uma turma com alunos
+  não é excluída por engano).
+- **Meus dados**: nome e instituição, que aparecem para os alunos.
 
 O botão **Exportar CSV** baixa uma planilha — o aluno leva só os próprios registros, o professor leva
 a turma inteira (abre direto no Excel ou no Google Planilhas).

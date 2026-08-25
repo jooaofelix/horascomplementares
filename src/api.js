@@ -1,5 +1,8 @@
 // Rotas e regras do sistema. Este arquivo não conhece o runtime: recebe um
 // banco já adaptado (SQLite local ou D1) e devolve descrições de resposta.
+//
+// Regra central: cada professor é dono das próprias turmas. Ele só enxerga e
+// valida os alunos das turmas dele; o aluno entra numa turma pelo código.
 
 import {
   gerarHash,
@@ -11,6 +14,7 @@ import {
 } from './auth.js';
 
 const LIMITE_TEXTO = 200_000;
+const META_PADRAO = 200;
 
 export const CATEGORIAS = [
   'Observação em campo',
@@ -31,21 +35,6 @@ export class ErroHttp extends Error {
 }
 
 const erro = (status, mensagem) => new ErroHttp(status, mensagem);
-
-// ---------- config ----------
-
-async function lerConfig(bd, chave) {
-  const linha = await bd.get('SELECT valor FROM config WHERE chave = ?', chave);
-  return linha ? linha.valor : null;
-}
-
-async function gravarConfig(bd, chave, valor) {
-  await bd.run(
-    'INSERT INTO config(chave, valor) VALUES(?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor',
-    chave,
-    String(valor),
-  );
-}
 
 // ---------- validação ----------
 
@@ -99,6 +88,46 @@ function validarAtividade(corpo) {
   };
 }
 
+// ---------- turmas ----------
+
+// Sem 0/O e 1/I: o código é ditado em sala e digitado no celular.
+const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+async function gerarCodigoTurma(bd) {
+  for (let tentativa = 0; tentativa < 12; tentativa++) {
+    const bytes = crypto.getRandomValues(new Uint8Array(6));
+    const codigo = Array.from(bytes, (b) => ALFABETO[b % ALFABETO.length]).join('');
+    if (!(await bd.get('SELECT 1 AS existe FROM turmas WHERE codigo = ?', codigo))) return codigo;
+  }
+  throw erro(500, 'Não foi possível gerar um código de turma.');
+}
+
+const normalizarCodigo = (valor) =>
+  texto(valor, 'o código da turma', { obrigatorio: false, max: 12 }).toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+const turmasDoProfessor = (bd, professorId) =>
+  bd.all(
+    `SELECT t.id, t.nome, t.periodo, t.codigo, t.meta_horas,
+            (SELECT COUNT(*) FROM usuarios u WHERE u.turma_id = t.id AND u.papel = 'aluno') AS alunos
+       FROM turmas t WHERE t.professor_id = ? ORDER BY t.nome COLLATE NOCASE`,
+    professorId,
+  );
+
+const turmaPropria = (bd, id, professorId) =>
+  bd.get('SELECT * FROM turmas WHERE id = ? AND professor_id = ?', id, professorId);
+
+async function turmaPorCodigo(bd, codigo) {
+  if (!codigo) return null;
+  const turma = await bd.get(
+    `SELECT t.id, t.nome, t.periodo, t.meta_horas, p.nome AS professor_nome, p.instituicao
+       FROM turmas t LEFT JOIN usuarios p ON p.id = t.professor_id
+      WHERE t.codigo = ?`,
+    codigo,
+  );
+  if (!turma) throw erro(404, 'Nenhuma turma com esse código. Confira com o professor.');
+  return turma;
+}
+
 // ---------- consultas ----------
 
 const COLUNAS_ATIVIDADE = `a.id, a.usuario_id, a.titulo, a.categoria, a.local, a.responsavel,
@@ -107,34 +136,46 @@ const COLUNAS_ATIVIDADE = `a.id, a.usuario_id, a.titulo, a.categoria, a.local, a
   u.nome AS aluno_nome, u.matricula AS aluno_matricula, t.nome AS turma_nome,
   v.nome AS validado_por_nome`;
 
-const JUNCOES = `FROM atividades a
+const juncoes = (interna) => `FROM atividades a
   JOIN usuarios u ON u.id = a.usuario_id
-  LEFT JOIN turmas t ON t.id = u.turma_id
+  ${interna ? 'JOIN' : 'LEFT JOIN'} turmas t ON t.id = u.turma_id
   LEFT JOIN usuarios v ON v.id = a.validado_por`;
 
-const buscarAtividade = (bd, id) =>
-  bd.get(`SELECT ${COLUNAS_ATIVIDADE} ${JUNCOES} WHERE a.id = ?`, id);
+const ORDEM = 'ORDER BY a.data_atividade DESC, a.id DESC';
 
-function listarAtividades(bd, { usuarioId = null, turmaId = null } = {}) {
-  const ordem = 'ORDER BY a.data_atividade DESC, a.id DESC';
-  if (usuarioId) {
-    return bd.all(`SELECT ${COLUNAS_ATIVIDADE} ${JUNCOES} WHERE a.usuario_id = ? ${ordem}`, usuarioId);
-  }
-  if (turmaId) {
-    return bd.all(`SELECT ${COLUNAS_ATIVIDADE} ${JUNCOES} WHERE u.turma_id = ? ${ordem}`, turmaId);
-  }
-  return bd.all(`SELECT ${COLUNAS_ATIVIDADE} ${JUNCOES} ${ordem}`);
-}
+const atividadesDoAluno = (bd, usuarioId) =>
+  bd.all(`SELECT ${COLUNAS_ATIVIDADE} ${juncoes(false)} WHERE a.usuario_id = ? ${ORDEM}`, usuarioId);
+
+const atividadesDoProfessor = (bd, professorId, turmaId) =>
+  turmaId
+    ? bd.all(
+        `SELECT ${COLUNAS_ATIVIDADE} ${juncoes(true)} WHERE t.professor_id = ? AND t.id = ? ${ORDEM}`,
+        professorId, turmaId,
+      )
+    : bd.all(
+        `SELECT ${COLUNAS_ATIVIDADE} ${juncoes(true)} WHERE t.professor_id = ? ${ORDEM}`,
+        professorId,
+      );
+
+const atividadeVisivelAoProfessor = (bd, atividadeId, professorId) =>
+  bd.get(
+    `SELECT a.id FROM atividades a
+       JOIN usuarios u ON u.id = a.usuario_id
+       JOIN turmas t ON t.id = u.turma_id
+      WHERE a.id = ? AND t.professor_id = ?`,
+    atividadeId, professorId,
+  );
+
+const buscarAtividade = (bd, id) =>
+  bd.get(`SELECT ${COLUNAS_ATIVIDADE} ${juncoes(false)} WHERE a.id = ?`, id);
 
 async function metaDoUsuario(bd, usuarioId) {
   const linha = await bd.get(
-    `SELECT t.meta_horas AS meta
-       FROM usuarios u LEFT JOIN turmas t ON t.id = u.turma_id
-      WHERE u.id = ?`,
+    `SELECT t.meta_horas AS meta FROM usuarios u
+       LEFT JOIN turmas t ON t.id = u.turma_id WHERE u.id = ?`,
     usuarioId,
   );
-  if (linha && linha.meta !== null && linha.meta !== undefined) return Number(linha.meta);
-  return Number(await lerConfig(bd, 'meta_horas'));
+  return linha && linha.meta !== null && linha.meta !== undefined ? Number(linha.meta) : META_PADRAO;
 }
 
 async function resumo(bd, usuarioId) {
@@ -157,21 +198,7 @@ async function resumo(bd, usuarioId) {
 
 function exigirProfessor(usuario) {
   if (!usuario || usuario.papel !== 'professor') throw erro(403, 'Só o professor pode fazer isso.');
-}
-
-const listarTurmas = (bd) =>
-  bd.all(`SELECT t.id, t.nome, t.periodo, t.meta_horas,
-                 (SELECT COUNT(*) FROM usuarios u WHERE u.turma_id = t.id AND u.papel = 'aluno') AS alunos
-            FROM turmas t ORDER BY t.nome COLLATE NOCASE`);
-
-async function turmaValida(bd, valor) {
-  if (valor === undefined || valor === null || valor === '') return null;
-  const id = Number(valor);
-  if (!Number.isInteger(id) || id <= 0) throw erro(400, 'Turma inválida.');
-  if (!(await bd.get('SELECT 1 AS existe FROM turmas WHERE id = ?', id))) {
-    throw erro(400, 'Essa turma não existe.');
-  }
-  return id;
+  return usuario;
 }
 
 function paraCsv(linhas) {
@@ -200,7 +227,6 @@ function paraCsv(linhas) {
 // ---------- rotas ----------
 
 export function criarRotas(bd, opcoes = {}) {
-  const codigoProfessor = opcoes.codigoProfessor || 'tecnicas-de-observacao';
   const iteracoesSenha = Number(opcoes.iteracoesSenha) || ITERACOES_PADRAO;
 
   return [
@@ -211,14 +237,18 @@ export function criarRotas(bd, opcoes = {}) {
       const senha = typeof ctx.corpo.senha === 'string' ? ctx.corpo.senha : '';
       if (senha.length < 6) throw erro(400, 'A senha precisa de pelo menos 6 caracteres.');
 
-      const codigo = texto(ctx.corpo.codigo_professor, 'o código', { obrigatorio: false, max: 100 });
-      let papel = 'aluno';
-      if (codigo) {
-        if (codigo !== codigoProfessor) throw erro(400, 'Código de professor incorreto.');
-        papel = 'professor';
+      const papel = ctx.corpo.papel === 'professor' ? 'professor' : 'aluno';
+      let turmaId = null;
+      if (papel === 'aluno') {
+        const codigo = normalizarCodigo(ctx.corpo.codigo_turma);
+        if (!codigo) throw erro(400, 'Informe o código da turma que o professor passou.');
+        turmaId = (await turmaPorCodigo(bd, codigo)).id;
       }
 
-      const turmaId = papel === 'aluno' ? await turmaValida(bd, ctx.corpo.turma_id) : null;
+      const instituicao =
+        papel === 'professor'
+          ? texto(ctx.corpo.instituicao, 'a instituição', { obrigatorio: false, max: 160 }) || null
+          : null;
       const matricula = texto(ctx.corpo.matricula, 'a matrícula', { obrigatorio: false, max: 40 }) || null;
 
       if (await bd.get('SELECT 1 AS existe FROM usuarios WHERE email = ?', email)) {
@@ -226,15 +256,10 @@ export function criarRotas(bd, opcoes = {}) {
       }
 
       const { ultimoId } = await bd.run(
-        `INSERT INTO usuarios(nome, email, senha_hash, papel, turma_id, matricula, criado_em)
-         VALUES(?, ?, ?, ?, ?, ?, ?)`,
-        nome,
-        email,
-        await gerarHash(senha, iteracoesSenha),
-        papel,
-        turmaId,
-        matricula,
-        new Date().toISOString(),
+        `INSERT INTO usuarios(nome, email, senha_hash, papel, turma_id, matricula, instituicao, criado_em)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+        nome, email, await gerarHash(senha, iteracoesSenha), papel,
+        turmaId, matricula, instituicao, new Date().toISOString(),
       );
 
       const { token, expira } = await criarSessao(bd, ultimoId);
@@ -265,30 +290,35 @@ export function criarRotas(bd, opcoes = {}) {
       return { corpo: { ok: true }, cabecalhos: { 'Set-Cookie': cookieDeSessao('', null, ctx.seguro) } };
     }],
 
-    // Lista pública: a tela de cadastro precisa oferecer as turmas.
-    ['GET', /^\/api\/turmas$/, async () => ({
-      corpo: { turmas: await listarTurmas(bd) },
-    })],
+    // Confere um código antes do cadastro: mostra em qual turma o aluno vai entrar.
+    ['POST', /^\/api\/turmas\/localizar$/, async (ctx) => {
+      const codigo = normalizarCodigo(ctx.corpo.codigo);
+      if (!codigo) throw erro(400, 'Informe o código da turma.');
+      return { corpo: { turma: await turmaPorCodigo(bd, codigo) } };
+    }],
+
+    ['GET', /^\/api\/turmas$/, async (ctx) => {
+      const professor = exigirProfessor(ctx.exigirLogin());
+      return { corpo: { turmas: await turmasDoProfessor(bd, professor.id) } };
+    }],
 
     ['POST', /^\/api\/turmas$/, async (ctx) => {
-      exigirProfessor(ctx.exigirLogin());
+      const professor = exigirProfessor(ctx.exigirLogin());
       const nome = texto(ctx.corpo.nome, 'o nome da turma', { max: 120 });
       const periodo = texto(ctx.corpo.periodo, 'o período', { obrigatorio: false, max: 60 }) || null;
       const meta = Number(ctx.corpo.meta_horas);
       if (!Number.isFinite(meta) || meta <= 0) throw erro(400, 'Meta de horas inválida.');
       const { ultimoId } = await bd.run(
-        'INSERT INTO turmas(nome, periodo, meta_horas, criado_em) VALUES(?, ?, ?, ?)',
-        nome, periodo, meta, new Date().toISOString(),
+        'INSERT INTO turmas(nome, periodo, codigo, professor_id, meta_horas, criado_em) VALUES(?, ?, ?, ?, ?, ?)',
+        nome, periodo, await gerarCodigoTurma(bd), professor.id, meta, new Date().toISOString(),
       );
       return { status: 201, corpo: { turma: await bd.get('SELECT * FROM turmas WHERE id = ?', ultimoId) } };
     }],
 
     ['PUT', /^\/api\/turmas\/(\d+)$/, async (ctx) => {
-      exigirProfessor(ctx.exigirLogin());
+      const professor = exigirProfessor(ctx.exigirLogin());
       const id = Number(ctx.parametros[0]);
-      if (!(await bd.get('SELECT 1 AS existe FROM turmas WHERE id = ?', id))) {
-        throw erro(404, 'Turma não encontrada.');
-      }
+      if (!(await turmaPropria(bd, id, professor.id))) throw erro(404, 'Turma não encontrada.');
       const nome = texto(ctx.corpo.nome, 'o nome da turma', { max: 120 });
       const periodo = texto(ctx.corpo.periodo, 'o período', { obrigatorio: false, max: 60 }) || null;
       const meta = Number(ctx.corpo.meta_horas);
@@ -298,8 +328,9 @@ export function criarRotas(bd, opcoes = {}) {
     }],
 
     ['DELETE', /^\/api\/turmas\/(\d+)$/, async (ctx) => {
-      exigirProfessor(ctx.exigirLogin());
+      const professor = exigirProfessor(ctx.exigirLogin());
       const id = Number(ctx.parametros[0]);
+      if (!(await turmaPropria(bd, id, professor.id))) throw erro(404, 'Turma não encontrada.');
       const comAlunos = await bd.get('SELECT COUNT(*) AS total FROM usuarios WHERE turma_id = ?', id);
       if (comAlunos.total > 0) {
         throw erro(409, `Essa turma tem ${comAlunos.total} aluno(s). Mova-os antes de excluir.`);
@@ -308,23 +339,44 @@ export function criarRotas(bd, opcoes = {}) {
       return { corpo: { ok: true } };
     }],
 
-    ['GET', /^\/api\/eu$/, async (ctx) => ({
-      corpo: {
-        usuario: ctx.usuario,
-        categorias: CATEGORIAS,
-        titulo_turma: await lerConfig(bd, 'titulo_turma'),
-        meta_horas: Number(await lerConfig(bd, 'meta_horas')),
-        turmas: await listarTurmas(bd),
-        resumo: ctx.usuario && ctx.usuario.papel === 'aluno' ? await resumo(bd, ctx.usuario.id) : null,
-      },
-    })],
+    ['GET', /^\/api\/eu$/, async (ctx) => {
+      const usuario = ctx.usuario;
+      const corpo = { usuario, categorias: CATEGORIAS };
+      if (usuario && usuario.papel === 'aluno') {
+        corpo.resumo = await resumo(bd, usuario.id);
+        corpo.professor = await bd.get(
+          `SELECT p.nome, p.instituicao FROM usuarios u
+             JOIN turmas t ON t.id = u.turma_id
+             JOIN usuarios p ON p.id = t.professor_id
+            WHERE u.id = ?`,
+          usuario.id,
+        );
+      }
+      if (usuario && usuario.papel === 'professor') {
+        corpo.turmas = await turmasDoProfessor(bd, usuario.id);
+      }
+      return { corpo };
+    }],
 
-    // O aluno corrige a própria turma e matrícula.
+    // Aluno entra em outra turma pelo código; professor edita nome e instituição.
     ['PUT', /^\/api\/eu$/, async (ctx) => {
       const usuario = ctx.exigirLogin();
-      const turmaId = await turmaValida(bd, ctx.corpo.turma_id);
+      const nome = texto(ctx.corpo.nome ?? usuario.nome, 'seu nome', { max: 120 });
+
+      if (usuario.papel === 'professor') {
+        const instituicao =
+          texto(ctx.corpo.instituicao, 'a instituição', { obrigatorio: false, max: 160 }) || null;
+        await bd.run('UPDATE usuarios SET nome = ?, instituicao = ? WHERE id = ?', nome, instituicao, usuario.id);
+        return { corpo: { ok: true } };
+      }
+
+      const codigo = normalizarCodigo(ctx.corpo.codigo_turma);
+      const turmaId = codigo ? (await turmaPorCodigo(bd, codigo)).id : usuario.turma_id;
       const matricula = texto(ctx.corpo.matricula, 'a matrícula', { obrigatorio: false, max: 40 }) || null;
-      await bd.run('UPDATE usuarios SET turma_id = ?, matricula = ? WHERE id = ?', turmaId, matricula, usuario.id);
+      await bd.run(
+        'UPDATE usuarios SET nome = ?, turma_id = ?, matricula = ? WHERE id = ?',
+        nome, turmaId, matricula, usuario.id,
+      );
       return { corpo: { ok: true, resumo: await resumo(bd, usuario.id) } };
     }],
 
@@ -332,19 +384,15 @@ export function criarRotas(bd, opcoes = {}) {
       const usuario = ctx.exigirLogin();
       if (usuario.papel === 'professor') {
         const turmaId = ctx.url.searchParams.get('turma_id');
-        const alvo = ctx.url.searchParams.get('usuario_id');
         return {
           corpo: {
-            atividades: await listarAtividades(bd, {
-              usuarioId: alvo ? Number(alvo) : null,
-              turmaId: turmaId ? Number(turmaId) : null,
-            }),
+            atividades: await atividadesDoProfessor(bd, usuario.id, turmaId ? Number(turmaId) : null),
           },
         };
       }
       return {
         corpo: {
-          atividades: await listarAtividades(bd, { usuarioId: usuario.id }),
+          atividades: await atividadesDoAluno(bd, usuario.id),
           resumo: await resumo(bd, usuario.id),
         },
       };
@@ -392,18 +440,20 @@ export function criarRotas(bd, opcoes = {}) {
       const usuario = ctx.exigirLogin();
       const atual = await buscarAtividade(bd, Number(ctx.parametros[0]));
       if (!atual) throw erro(404, 'Atividade não encontrada.');
-      if (atual.usuario_id !== usuario.id && usuario.papel !== 'professor') {
-        throw erro(403, 'Essa atividade é de outro aluno.');
-      }
+      const proprio = atual.usuario_id === usuario.id;
+      const daMinhaTurma =
+        usuario.papel === 'professor' && (await atividadeVisivelAoProfessor(bd, atual.id, usuario.id));
+      if (!proprio && !daMinhaTurma) throw erro(403, 'Essa atividade é de outro aluno.');
       await bd.run('DELETE FROM atividades WHERE id = ?', atual.id);
       return { corpo: { ok: true, resumo: await resumo(bd, atual.usuario_id) } };
     }],
 
     ['POST', /^\/api\/atividades\/(\d+)\/validacao$/, async (ctx) => {
-      const usuario = ctx.exigirLogin();
-      exigirProfessor(usuario);
-      const atual = await buscarAtividade(bd, Number(ctx.parametros[0]));
-      if (!atual) throw erro(404, 'Atividade não encontrada.');
+      const professor = exigirProfessor(ctx.exigirLogin());
+      const id = Number(ctx.parametros[0]);
+      if (!(await atividadeVisivelAoProfessor(bd, id, professor.id))) {
+        throw erro(404, 'Atividade não encontrada nas suas turmas.');
+      }
 
       const validado = ctx.corpo.validado ? 1 : 0;
       const observacao =
@@ -413,20 +463,15 @@ export function criarRotas(bd, opcoes = {}) {
         `UPDATE atividades
             SET validado = ?, validado_por = ?, validado_em = ?, observacao = ?, atualizado_em = ?
           WHERE id = ?`,
-        validado,
-        validado ? usuario.id : null,
-        validado ? agora : null,
-        observacao,
-        agora,
-        atual.id,
+        validado, validado ? professor.id : null, validado ? agora : null, observacao, agora, id,
       );
-      return { corpo: { atividade: await buscarAtividade(bd, atual.id) } };
+      return { corpo: { atividade: await buscarAtividade(bd, id) } };
     }],
 
     ['GET', /^\/api\/turma$/, async (ctx) => {
-      exigirProfessor(ctx.exigirLogin());
+      const professor = exigirProfessor(ctx.exigirLogin());
       const filtro = ctx.url.searchParams.get('turma_id');
-      const padrao = Number(await lerConfig(bd, 'meta_horas'));
+      const parametros = filtro ? [professor.id, Number(filtro)] : [professor.id];
       const linhas = await bd.all(
         `SELECT u.id, u.nome, u.email, u.matricula, u.turma_id, t.nome AS turma_nome, t.meta_horas,
                 COUNT(a.id) AS registros,
@@ -434,38 +479,20 @@ export function criarRotas(bd, opcoes = {}) {
                 COALESCE(SUM(CASE WHEN a.validado = 1 THEN a.horas ELSE 0 END), 0) AS validado,
                 COALESCE(SUM(CASE WHEN a.validado = 0 THEN 1 ELSE 0 END), 0) AS pendentes
            FROM usuarios u
-           LEFT JOIN turmas t ON t.id = u.turma_id
+           JOIN turmas t ON t.id = u.turma_id
            LEFT JOIN atividades a ON a.usuario_id = u.id
-          WHERE u.papel = 'aluno' ${filtro ? 'AND u.turma_id = ?' : ''}
+          WHERE u.papel = 'aluno' AND t.professor_id = ? ${filtro ? 'AND t.id = ?' : ''}
           GROUP BY u.id
           ORDER BY u.nome COLLATE NOCASE`,
-        ...(filtro ? [Number(filtro)] : []),
+        ...parametros,
       );
       const alunos = linhas.map((l) => ({
         ...l,
         declarado: Math.round(l.declarado * 100) / 100,
         validado: Math.round(l.validado * 100) / 100,
-        meta: l.meta_horas === null || l.meta_horas === undefined ? padrao : Number(l.meta_horas),
+        meta: l.meta_horas === null || l.meta_horas === undefined ? META_PADRAO : Number(l.meta_horas),
       }));
-      return { corpo: { alunos, turmas: await listarTurmas(bd), meta_horas: padrao } };
-    }],
-
-    ['PUT', /^\/api\/config$/, async (ctx) => {
-      exigirProfessor(ctx.exigirLogin());
-      if (ctx.corpo.meta_horas !== undefined) {
-        const meta = Number(ctx.corpo.meta_horas);
-        if (!Number.isFinite(meta) || meta <= 0) throw erro(400, 'Meta de horas inválida.');
-        await gravarConfig(bd, 'meta_horas', meta);
-      }
-      if (ctx.corpo.titulo_turma !== undefined) {
-        await gravarConfig(bd, 'titulo_turma', texto(ctx.corpo.titulo_turma, 'o título', { max: 160 }));
-      }
-      return {
-        corpo: {
-          meta_horas: Number(await lerConfig(bd, 'meta_horas')),
-          titulo_turma: await lerConfig(bd, 'titulo_turma'),
-        },
-      };
+      return { corpo: { alunos, turmas: await turmasDoProfessor(bd, professor.id) } };
     }],
 
     ['GET', /^\/api\/exportar\.csv$/, async (ctx) => {
@@ -473,8 +500,8 @@ export function criarRotas(bd, opcoes = {}) {
       const turmaId = ctx.url.searchParams.get('turma_id');
       const linhas =
         usuario.papel === 'professor'
-          ? await listarAtividades(bd, { turmaId: turmaId ? Number(turmaId) : null })
-          : await listarAtividades(bd, { usuarioId: usuario.id });
+          ? await atividadesDoProfessor(bd, usuario.id, turmaId ? Number(turmaId) : null)
+          : await atividadesDoAluno(bd, usuario.id);
       return {
         csv: paraCsv(linhas),
         cabecalhos: {

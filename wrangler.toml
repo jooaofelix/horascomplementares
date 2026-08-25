@@ -19,5 +19,6 @@ ITERACOES_SENHA = "10000"
 [[d1_databases]]
 binding = "DB"
 database_name = "horas-complementares"
-# Preencha com o id que o comando `wrangler d1 create` devolver.
-database_id = "PREENCHA_COM_O_ID_DO_SEU_BANCO"
+# Id do banco criado com `npm run banco:criar`. Não é segredo: o acesso depende
+# da sua conta Cloudflare, não deste número.
+database_id = "1e87d4af-135f-4f36-b5b6-ca1fe5c28ecd"

@@ -52,6 +52,16 @@ No fim o wrangler mostra o endereço, algo como `https://horas-complementares.SE
 Para atualizar depois de mexer no código, só `npm run deploy` de novo — os dados ficam no D1 e não
 são tocados pelo deploy.
 
+Quando uma mudança precisar de colunas novas no banco, os arquivos ficam em `migracoes/` e rodam uma
+vez cada:
+
+```bash
+npx wrangler d1 execute horas-complementares --remote --file=migracoes/002-turmas-e-campos.sql
+```
+
+O banco local não precisa disso: ao iniciar, o `npm start` confere e cria sozinho as colunas que
+faltarem.
+
 Testar a versão Cloudflare na sua máquina antes de publicar:
 
 ```bash
@@ -61,6 +71,15 @@ npx wrangler dev --local
 
 > Os dois modos têm bancos separados: o que você cadastrar em `npm start` não aparece no site
 > publicado, e vice-versa.
+
+## Turmas
+
+Uma professora pode atender várias turmas no mesmo sistema. Na aba **Minhas turmas** ela cria cada
+turma com nome, período e **meta de horas própria**; o aluno escolhe a sua turma ao criar a conta (e
+pode corrigir depois, em *Seus dados*).
+
+O seletor **Turma que você está vendo** filtra de uma vez a lista de alunos, a fila de validação e a
+planilha exportada — dá para fechar as horas de uma turma sem que as outras atrapalhem.
 
 ## Contas
 
@@ -76,14 +95,26 @@ Pode haver mais de um professor — todos enxergam a turma inteira.
 
 ## Como o aluno usa
 
-1. Preenche título, categoria, data e quantas horas a atividade rendeu.
+1. Preenche a ficha da atividade:
+
+   | Campo | Obrigatório |
+   | --- | --- |
+   | Nome da atividade | sim |
+   | Tipo de atividade (categoria) | sim |
+   | Carga horária | sim |
+   | Data da atividade | sim |
+   | Data de término (para atividades de vários dias) | não |
+   | Local / instituição | não |
+   | Responsável no local (quem supervisionou) | não |
+   | Comprovante (nº do certificado ou link) | não |
+
 2. Escreve a análise no campo de texto **ou** arrasta um arquivo `.txt`/`.md` para a área pontilhada
    (o conteúdo entra no campo e ainda dá para editar antes de salvar; o nome do arquivo fica
    registrado junto).
-3. Salva. As horas entram na hora no total **declarado**.
+3. Salva. As horas entram na hora no total **lançado**.
 
 Categorias disponíveis: Observação em campo, Registro cursivo, Análise de material,
-Leitura / fichamento, Supervisão, Seminário / evento, Outro.
+Leitura / fichamento, Supervisão, Seminário / evento, Extensão / projeto, Outro.
 
 ## Como funciona a validação
 
@@ -96,10 +127,13 @@ o professor sempre valida a versão que está lá.
 
 ## O que o professor vê
 
-- **Turma**: panorama com horas validadas, declaradas e quantos registros faltam conferir por aluno.
-- **Registros**: todas as atividades da turma, com busca por aluno/título/trecho da análise e filtro
-  por status (começa mostrando só as pendentes).
-- **Ajustes**: meta de horas da turma e nome que aparece no topo.
+- **Alunos**: panorama com horas validadas, lançadas e quantos registros faltam conferir por aluno,
+  com a meta da turma de cada um.
+- **Validar horas**: fila de atividades, com busca por aluno, atividade, local ou trecho da análise e
+  filtro por status (começa mostrando só as pendentes).
+- **Minhas turmas**: criar, renomear, ajustar a meta e excluir turmas (uma turma com alunos não é
+  excluída por engano).
+- **Ajustes**: título que aparece no topo e a meta padrão para alunos sem turma.
 
 O botão **Exportar CSV** baixa uma planilha — o aluno leva só os próprios registros, o professor leva
 a turma inteira (abre direto no Excel ou no Google Planilhas).
@@ -126,6 +160,7 @@ src/auth.js        senhas (PBKDF2 via Web Crypto) e sessões
 src/sqlite.js      banco local + adaptador
 src/d1.js          adaptador do Cloudflare D1
 src/esquema.sql    esquema único, usado pelos dois bancos
+migracoes/         alterações de banco para instalações que já existem
 public/            interface (HTML, CSS e JavaScript sem framework)
 test/api.test.js   testes de ponta a ponta da API
 data/horas.db      banco local (criado ao rodar; fora do Git)

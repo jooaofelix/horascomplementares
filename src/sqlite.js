@@ -15,7 +15,30 @@ export function abrirBanco(caminho = process.env.BANCO || CAMINHO_PADRAO) {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec(fs.readFileSync(path.join(AQUI, 'esquema.sql'), 'utf8'));
+  garantirColunas(db);
   return db;
+}
+
+// Bancos criados antes das turmas ganham as colunas novas aqui — o esquema.sql
+// só cria tabelas que ainda não existem, então não altera as antigas.
+const COLUNAS_NOVAS = [
+  ['usuarios', 'turma_id', 'INTEGER REFERENCES turmas(id) ON DELETE SET NULL'],
+  ['usuarios', 'matricula', 'TEXT'],
+  ['atividades', 'local', 'TEXT'],
+  ['atividades', 'responsavel', 'TEXT'],
+  ['atividades', 'data_fim', 'TEXT'],
+  ['atividades', 'comprovante', 'TEXT'],
+];
+
+function garantirColunas(db) {
+  for (const [tabela, coluna, tipo] of COLUNAS_NOVAS) {
+    const colunas = db.prepare(`PRAGMA table_info(${tabela})`).all();
+    if (!colunas.some((c) => c.name === coluna)) {
+      db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${tipo}`);
+    }
+  }
+  // Só depois das colunas existirem — em bancos antigos elas acabaram de nascer.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_usuarios_turma ON usuarios(turma_id)');
 }
 
 // Adapta o node:sqlite (síncrono) para a mesma interface assíncrona do D1.

@@ -78,8 +78,10 @@ export async function usuarioDaSessao(bd, token) {
   if (!token) return null;
   await bd.run('DELETE FROM sessoes WHERE expira_em < ?', new Date().toISOString());
   return bd.get(
-    `SELECT u.id, u.nome, u.email, u.papel
-       FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
+    `SELECT u.id, u.nome, u.email, u.papel, u.turma_id, u.matricula, t.nome AS turma_nome
+       FROM sessoes s
+       JOIN usuarios u ON u.id = s.usuario_id
+       LEFT JOIN turmas t ON t.id = u.turma_id
       WHERE s.token = ?`,
     token,
   );

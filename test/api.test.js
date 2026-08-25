@@ -36,8 +36,11 @@ function cliente(base) {
 const atividadeBase = {
   titulo: 'Observação livre no pátio',
   categoria: 'Observação em campo',
+  local: 'EMEI Vila Nova — pátio',
+  responsavel: 'Coordenadora Marta',
   data_atividade: '2026-03-14',
   horas: 2.5,
+  comprovante: 'Certificado 2026/031',
   texto: 'Registro cursivo do terceiro encontro. Duas crianças em brincadeira paralela.',
 };
 
@@ -50,11 +53,20 @@ async function comAmbiente(fn) {
   }
 }
 
-const criarAluno = async (base, nome, email) => {
+const criarAluno = async (base, nome, email, extras = {}) => {
   const c = cliente(base);
-  const r = await c('/api/cadastro', { metodo: 'POST', corpo: { nome, email, senha: 'senha123' } });
+  const r = await c('/api/cadastro', {
+    metodo: 'POST',
+    corpo: { nome, email, senha: 'senha123', ...extras },
+  });
   assert.equal(r.status, 200, JSON.stringify(r.dados));
   return c;
+};
+
+const criarTurma = async (professor, nome, meta_horas, periodo = null) => {
+  const r = await professor('/api/turmas', { metodo: 'POST', corpo: { nome, meta_horas, periodo } });
+  assert.equal(r.status, 201, JSON.stringify(r.dados));
+  return r.dados.turma;
 };
 
 const criarProfessor = async (base) => {
@@ -270,7 +282,7 @@ test('exportação em CSV traz uma linha por atividade', async () => {
     assert.equal(csv.status, 200);
     const linhas = csv.dados.trim().split('\r\n');
     assert.equal(linhas.length, 3);
-    assert.match(linhas[0], /aluno;data;titulo/);
+    assert.match(linhas[0], /aluno;matricula;turma;data_inicio;data_fim;atividade/);
     assert.match(csv.dados, /Observação livre no pátio/);
   });
 });
@@ -302,5 +314,127 @@ test('a página inicial é servida e caminhos desconhecidos devolvem 404', async
     assert.equal(pagina.status, 200);
     assert.match(pagina.dados, /Horas complementares/);
     assert.equal((await anonimo('/nao-existe.html')).status, 404);
+  });
+});
+
+test('os campos da ficha (local, responsável, término, comprovante) são gravados', async () => {
+  await comAmbiente(async ({ base }) => {
+    const aluno = await criarAluno(base, 'Ana', 'ana@exemplo.br');
+    const criada = await aluno('/api/atividades', {
+      metodo: 'POST',
+      corpo: { ...atividadeBase, data_fim: '2026-03-16' },
+    });
+    assert.equal(criada.status, 201, JSON.stringify(criada.dados));
+    const a = criada.dados.atividade;
+    assert.equal(a.local, 'EMEI Vila Nova — pátio');
+    assert.equal(a.responsavel, 'Coordenadora Marta');
+    assert.equal(a.data_fim, '2026-03-16');
+    assert.equal(a.comprovante, 'Certificado 2026/031');
+  });
+});
+
+test('data de término anterior ao início é recusada', async () => {
+  await comAmbiente(async ({ base }) => {
+    const aluno = await criarAluno(base, 'Ana', 'ana@exemplo.br');
+    const r = await aluno('/api/atividades', {
+      metodo: 'POST',
+      corpo: { ...atividadeBase, data_fim: '2026-03-10' },
+    });
+    assert.equal(r.status, 400);
+    assert.match(r.dados.erro, /término/i);
+  });
+});
+
+test('cada turma tem sua meta e o aluno herda a meta da turma dele', async () => {
+  await comAmbiente(async ({ base }) => {
+    const professor = await criarProfessor(base);
+    const manha = await criarTurma(professor, 'Observação — manhã', 120, '2026.1');
+    const noite = await criarTurma(professor, 'Observação — noite', 300);
+
+    const ana = await criarAluno(base, 'Ana', 'ana@exemplo.br', { turma_id: manha.id, matricula: '2026001' });
+    const bruno = await criarAluno(base, 'Bruno', 'bruno@exemplo.br', { turma_id: noite.id });
+
+    assert.equal((await ana('/api/eu')).dados.resumo.meta, 120);
+    assert.equal((await bruno('/api/eu')).dados.resumo.meta, 300);
+    assert.equal((await ana('/api/eu')).dados.usuario.turma_nome, 'Observação — manhã');
+    assert.equal((await ana('/api/eu')).dados.usuario.matricula, '2026001');
+  });
+});
+
+test('o professor filtra alunos e registros por turma', async () => {
+  await comAmbiente(async ({ base }) => {
+    const professor = await criarProfessor(base);
+    const manha = await criarTurma(professor, 'Manhã', 120);
+    const noite = await criarTurma(professor, 'Noite', 200);
+    const ana = await criarAluno(base, 'Ana', 'ana@exemplo.br', { turma_id: manha.id });
+    const bruno = await criarAluno(base, 'Bruno', 'bruno@exemplo.br', { turma_id: noite.id });
+    await ana('/api/atividades', { metodo: 'POST', corpo: atividadeBase });
+    await bruno('/api/atividades', { metodo: 'POST', corpo: { ...atividadeBase, titulo: 'Da noite' } });
+
+    const todos = await professor('/api/turma');
+    assert.equal(todos.dados.alunos.length, 2);
+    assert.equal(todos.dados.turmas.length, 2);
+
+    const soManha = await professor(`/api/turma?turma_id=${manha.id}`);
+    assert.equal(soManha.dados.alunos.length, 1);
+    assert.equal(soManha.dados.alunos[0].nome, 'Ana');
+    assert.equal(soManha.dados.alunos[0].meta, 120);
+
+    const registrosManha = await professor(`/api/atividades?turma_id=${manha.id}`);
+    assert.equal(registrosManha.dados.atividades.length, 1);
+    assert.equal(registrosManha.dados.atividades[0].turma_nome, 'Manhã');
+
+    const csvNoite = await professor(`/api/exportar.csv?turma_id=${noite.id}`);
+    assert.match(csvNoite.dados, /Da noite/);
+    assert.doesNotMatch(csvNoite.dados, /Observação livre no pátio/);
+  });
+});
+
+test('turma com aluno não é excluída, e só professor mexe em turmas', async () => {
+  await comAmbiente(async ({ base }) => {
+    const professor = await criarProfessor(base);
+    const turma = await criarTurma(professor, 'Manhã', 120);
+    const ana = await criarAluno(base, 'Ana', 'ana@exemplo.br', { turma_id: turma.id });
+
+    const recusa = await professor(`/api/turmas/${turma.id}`, { metodo: 'DELETE' });
+    assert.equal(recusa.status, 409);
+
+    const alunoTentando = await ana('/api/turmas', { metodo: 'POST', corpo: { nome: 'X', meta_horas: 10 } });
+    assert.equal(alunoTentando.status, 403);
+
+    const inexistente = await criarAluno(base, 'Caio', 'caio@exemplo.br');
+    const erroTurma = await inexistente('/api/eu', { metodo: 'PUT', corpo: { turma_id: 9999 } });
+    assert.equal(erroTurma.status, 400);
+  });
+});
+
+test('o aluno corrige a própria turma e matrícula', async () => {
+  await comAmbiente(async ({ base }) => {
+    const professor = await criarProfessor(base);
+    const certa = await criarTurma(professor, 'Turma certa', 90);
+    const ana = await criarAluno(base, 'Ana', 'ana@exemplo.br');
+    assert.equal((await ana('/api/eu')).dados.resumo.meta, 200);
+
+    const ajuste = await ana('/api/eu', {
+      metodo: 'PUT',
+      corpo: { turma_id: certa.id, matricula: '2026042' },
+    });
+    assert.equal(ajuste.status, 200);
+    assert.equal(ajuste.dados.resumo.meta, 90);
+    const eu = await ana('/api/eu');
+    assert.equal(eu.dados.usuario.turma_nome, 'Turma certa');
+    assert.equal(eu.dados.usuario.matricula, '2026042');
+  });
+});
+
+test('a lista de turmas é pública para a tela de cadastro', async () => {
+  await comAmbiente(async ({ base }) => {
+    const professor = await criarProfessor(base);
+    await criarTurma(professor, 'Manhã', 120, '2026.1');
+    const anonimo = cliente(base);
+    const r = await anonimo('/api/turmas');
+    assert.equal(r.status, 200);
+    assert.equal(r.dados.turmas[0].nome, 'Manhã');
+    assert.equal(r.dados.turmas[0].periodo, '2026.1');
   });
 });

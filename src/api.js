@@ -496,13 +496,42 @@ const historico = (bd, entidade, entidadeId) =>
 
 // ---------- arquivos ----------
 
+// Tipo do arquivo -> extensão guardada. Slides e documentos entram aqui porque
+// é com eles que a aula é publicada no dia a dia.
 const TIPOS_ACEITOS = {
   'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+  'application/vnd.ms-powerpoint': 'ppt',
+  'application/vnd.oasis.opendocument.presentation': 'odp',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/msword': 'doc',
+  'application/vnd.oasis.opendocument.text': 'odt',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-excel': 'xls',
   'image/jpeg': 'jpg',
   'image/png': 'png',
+  'image/webp': 'webp',
+  'image/heic': 'heic',
+  'image/heif': 'heif',
   'text/plain': 'txt',
   'text/markdown': 'md',
+  'text/csv': 'csv',
 };
+
+// O navegador nem sempre sabe o tipo (celular, formatos do Office): quando ele
+// manda vazio ou genérico, a extensão do nome resolve.
+const TIPO_POR_EXTENSAO = Object.fromEntries(
+  Object.entries(TIPOS_ACEITOS).map(([tipo, extensao]) => [extensao, tipo]),
+);
+
+function tipoDoArquivo(nome, tipoInformado) {
+  const informado = String(tipoInformado || '').toLowerCase().split(';')[0].trim();
+  if (TIPOS_ACEITOS[informado]) return informado;
+  const extensao = String(nome || '').toLowerCase().split('.').pop();
+  return TIPO_POR_EXTENSAO[extensao] ?? informado;
+}
+
+export const FORMATOS_ACEITOS = Object.values(TIPOS_ACEITOS);
 
 function bytesDeBase64(base64) {
   const limpo = String(base64 || '').replace(/^data:[^;]+;base64,/, '').replace(/\s/g, '');
@@ -516,9 +545,11 @@ function bytesDeBase64(base64) {
 async function guardarArquivo(bd, armazenamento, usuario, dados) {
   if (!armazenamento) throw erro(503, 'Armazenamento de arquivos não configurado.');
   const nome = texto(dados.nome, 'o nome do arquivo', { max: 200 });
-  const tipo = texto(dados.tipo, 'o tipo do arquivo', { max: 100 });
+  const tipo = tipoDoArquivo(nome, dados.tipo);
   if (!TIPOS_ACEITOS[tipo]) {
-    throw erro(400, `Formato não aceito. Envie PDF, JPG, PNG ou texto (recebido: ${tipo}).`);
+    throw erro(400,
+      `Formato não aceito (${dados.tipo || 'desconhecido'}). ` +
+      'Envie PDF, slide (PPTX/PPT/ODP), documento (DOCX/DOC/ODT), planilha, imagem ou texto.');
   }
 
   const bytes = bytesDeBase64(dados.conteudo);
@@ -844,7 +875,12 @@ export function criarRotas(bd, opcoes = {}) {
 
     ['GET', /^\/api\/eu$/, async (ctx) => {
       const usuario = ctx.usuario;
-      const corpo = { usuario, categorias: await listarCategorias(bd) };
+      const corpo = {
+        usuario,
+        categorias: await listarCategorias(bd),
+        limite_arquivo: opcoes.arquivos?.limite ?? 0,
+        formatos: FORMATOS_ACEITOS,
+      };
       if (!usuario) {
         const { total } = await bd.get(
           `SELECT COUNT(*) AS total FROM usuarios WHERE papel IN ('professor', 'coordenador', 'admin')`,
@@ -1382,6 +1418,19 @@ export function criarRotas(bd, opcoes = {}) {
         ctx.corpo.publicada === false ? 0 : 1,
         equipe.id, agora, agora,
       );
+
+      // Anexar na mesma ação evita o segundo passo de "agora adicione o material".
+      if (ctx.corpo.arquivo) {
+        const arquivo = await guardarArquivo(bd, opcoes.arquivos, equipe, ctx.corpo.arquivo);
+        await bd.run(
+          `INSERT INTO materiais(turma_id, aula_id, tipo, titulo, arquivo_id, criado_por, criado_em)
+           VALUES(?, ?, 'arquivo', ?, ?, ?, ?)`,
+          turma.id, ultimoId,
+          texto(ctx.corpo.arquivo.titulo, 'o título do material', { obrigatorio: false, max: 160 }) || arquivo.nome,
+          arquivo.id, equipe.id, agora,
+        );
+      }
+
       return { status: 201, corpo: { aula: await bd.get('SELECT * FROM aulas WHERE id = ?', ultimoId) } };
     }],
 

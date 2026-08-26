@@ -27,6 +27,7 @@ const estado = {
   cursos: [],
   usuarios: [],
   turmaFiltro: '',
+  limiteArquivo: 0,
   papelCadastro: 'aluno',
 };
 
@@ -980,6 +981,11 @@ $('#btn-salvar-perfil').onclick = async () => {
 function lerParaEnvio(input) {
   const arquivo = input?.files?.[0];
   if (!arquivo) return Promise.resolve(null);
+  if (estado.limiteArquivo && arquivo.size > estado.limiteArquivo) {
+    const limite = (estado.limiteArquivo / (1024 * 1024)).toFixed(1).replace('.', ',');
+    const tamanho = (arquivo.size / (1024 * 1024)).toFixed(1).replace('.', ',');
+    return Promise.reject(new Error(`O arquivo tem ${tamanho} MB e o limite aqui é ${limite} MB.`));
+  }
   return new Promise((resolve, reject) => {
     const leitor = new FileReader();
     leitor.onerror = () => reject(new Error('Não foi possível ler o arquivo.'));
@@ -1030,7 +1036,7 @@ function blocoTarefaAluno(t) {
            <textarea data-entrega-texto="${t.id}" placeholder="Escreva sua resposta aqui">${escapar(entrega?.texto || '')}</textarea>
            <div class="campo" style="margin-top:10px">
              <label>Anexo <span class="opcional">(PDF, JPG ou PNG)</span></label>
-             <input type="file" data-entrega-arquivo="${t.id}" accept=".pdf,.jpg,.jpeg,.png,.txt,.md">
+             <input type="file" data-entrega-arquivo="${t.id}" accept=".pdf,.pptx,.ppt,.odp,.docx,.doc,.odt,.xlsx,.xls,.jpg,.jpeg,.png,.webp,.heic,.txt,.md,.csv">
              ${entrega?.arquivo_nome ? `<div class="ajuda">Já enviado: ${escapar(entrega.arquivo_nome)}</div>` : ''}
            </div>
            <button data-enviar-entrega="${t.id}">${entrega ? 'Reenviar entrega' : 'Entregar'}</button>
@@ -1132,7 +1138,7 @@ function desenharMuralProfessor() {
         </div>
         <div class="linha">
           <div class="campo"><label>Arquivo</label>
-            <input type="file" data-mat-arquivo="${aulaId}" accept=".pdf,.jpg,.jpeg,.png,.txt,.md"></div>
+            <input type="file" data-mat-arquivo="${aulaId}" accept=".pdf,.pptx,.ppt,.odp,.docx,.doc,.odt,.xlsx,.xls,.jpg,.jpeg,.png,.webp,.heic,.txt,.md,.csv"></div>
           <div class="campo"><label>ou link</label>
             <input data-mat-url="${aulaId}" placeholder="https://..."></div>
         </div>
@@ -1191,10 +1197,12 @@ $('#btn-criar-aula').onclick = async () => {
         data_aula: $('#nova-aula-data').value,
         descricao: $('#nova-aula-descricao').value,
         publicada: $('#nova-aula-publicada').value === '1',
+        arquivo: await lerParaEnvio($('#nova-aula-arquivo')),
       },
     });
     $('#nova-aula-titulo').value = '';
     $('#nova-aula-descricao').value = '';
+    $('#nova-aula-arquivo').value = '';
     await carregarMuralProfessor();
     avisar('Aula publicada.', 'ok');
   } catch (err) {
@@ -1350,6 +1358,7 @@ async function iniciar() {
   const dados = await api('/api/eu');
   estado.usuario = dados.usuario;
   estado.categorias = dados.categorias;
+  estado.limiteArquivo = dados.limite_arquivo || 0;
 
   if (!estado.usuario) {
     $('#campo-convite').dataset.obrigatorio = dados.convite_obrigatorio ? '1' : '';
@@ -1369,6 +1378,9 @@ async function iniciar() {
     $('#cfg-instituicao').value = u.instituicao || '';
     estado.turmas = dados.turmas || [];
     $('#aba-botao-convites').classList.toggle('oculto', !u.pode_convidar);
+    const limiteMb = (estado.limiteArquivo / (1024 * 1024)).toFixed(1).replace('.', ',');
+    const ajuda = $('#ajuda-formatos');
+    if (ajuda) ajuda.textContent = `PDF, PPTX, DOCX, planilha, imagem ou texto — até ${limiteMb} MB por arquivo.`;
     $('#aba-botao-cursos').classList.toggle('oculto', u.papel !== 'admin');
     $('#aba-botao-usuarios').classList.toggle('oculto', u.papel !== 'admin');
     estado.categorias = dados.categorias;

@@ -1023,8 +1023,8 @@ test('formato não aceito e arquivo grande demais são recusados', async () => {
     const formato = await admin('/api/materiais', {
       metodo: 'POST',
       corpo: {
-        turma_id: turma.id, titulo: 'Planilha',
-        arquivo: { nome: 'notas.xlsx', tipo: 'application/vnd.ms-excel', conteudo: 'AAAA' },
+        turma_id: turma.id, titulo: 'Instalador',
+        arquivo: { nome: 'programa.exe', tipo: 'application/x-msdownload', conteudo: 'AAAA' },
       },
     });
     assert.equal(formato.status, 400);
@@ -1274,5 +1274,99 @@ test('a planilha traz horas declaradas, aprovadas e o status', async () => {
     const csv = await ana('/api/exportar.csv');
     assert.match(csv.dados, /horas_declaradas;horas_aprovadas;status/);
     assert.match(csv.dados, /"9";"7";"aprovado"/);
+  });
+});
+
+test('slide e documento são aceitos, e o tipo sai da extensão quando falta', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, turma, ana } = await turmaComAluno(base);
+    const conteudo = Buffer.from('PK\u0003\u0004 conteudo do slide').toString('base64');
+
+    const slide = await admin('/api/materiais', {
+      metodo: 'POST',
+      corpo: {
+        turma_id: turma.id, titulo: 'Aula 3 em slides',
+        arquivo: {
+          nome: 'aula-3.pptx',
+          tipo: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          conteudo,
+        },
+      },
+    });
+    assert.equal(slide.status, 201, JSON.stringify(slide.dados));
+
+    // Celular costuma mandar tipo vazio: a extensão resolve.
+    const semTipo = await admin('/api/materiais', {
+      metodo: 'POST',
+      corpo: {
+        turma_id: turma.id, titulo: 'Texto de apoio',
+        arquivo: { nome: 'apoio.docx', tipo: '', conteudo },
+      },
+    });
+    assert.equal(semTipo.status, 201, JSON.stringify(semTipo.dados));
+
+    const mural = await ana(`/api/turmas/${turma.id}/mural`);
+    const nomes = mural.dados.avulsos.materiais.map((m) => m.arquivo_nome).sort();
+    assert.deepEqual(nomes, ['apoio.docx', 'aula-3.pptx']);
+  });
+});
+
+test('a aula pode ser publicada já com o arquivo anexado', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, turma, ana } = await turmaComAluno(base);
+    const criada = await admin('/api/aulas', {
+      metodo: 'POST',
+      corpo: {
+        turma_id: turma.id,
+        titulo: 'Aula 4 — Categorias de observação',
+        data_aula: '2026-04-13',
+        arquivo: { nome: 'aula-4.pptx', tipo: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', conteudo: Buffer.from('slide').toString('base64') },
+      },
+    });
+    assert.equal(criada.status, 201, JSON.stringify(criada.dados));
+
+    const mural = await ana(`/api/turmas/${turma.id}/mural`);
+    const aula = mural.dados.aulas.find((a) => a.titulo.startsWith('Aula 4'));
+    assert.equal(aula.materiais.length, 1, 'o arquivo virou material da aula');
+    assert.equal(aula.materiais[0].arquivo_nome, 'aula-4.pptx');
+
+    const baixado = await ana(`/api/arquivos/${aula.materiais[0].arquivo_id}`);
+    assert.equal(baixado.status, 200);
+  });
+});
+
+test('a tela recebe o limite de tamanho do destino de arquivos', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { ana } = await turmaComAluno(base);
+    const eu = await ana('/api/eu');
+    assert.equal(eu.dados.limite_arquivo, 700 * 1024, 'destino D1 nos testes');
+    assert.ok(eu.dados.formatos.includes('pptx'));
+  });
+});
+
+test('o aluno entrega a tarefa com arquivo de slide', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, turma, ana } = await turmaComAluno(base);
+    const tarefa = (await admin('/api/tarefas', {
+      metodo: 'POST', corpo: { turma_id: turma.id, titulo: 'Apresentação do caso', horas_sugeridas: 3 },
+    })).dados.tarefa;
+
+    const entrega = await ana(`/api/tarefas/${tarefa.id}/entrega`, {
+      metodo: 'PUT',
+      corpo: {
+        texto: 'Segue a apresentação usada no seminário.',
+        arquivo: {
+          nome: 'caso-clinico.pptx',
+          tipo: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          conteudo: Buffer.from('slide da entrega').toString('base64'),
+        },
+      },
+    });
+    assert.equal(entrega.status, 200, JSON.stringify(entrega.dados));
+
+    const fila = await admin(`/api/tarefas/${tarefa.id}/entregas`);
+    assert.equal(fila.dados.entregas[0].arquivo_nome, 'caso-clinico.pptx');
+    const baixado = await admin(`/api/arquivos/${fila.dados.entregas[0].arquivo_id}`);
+    assert.equal(baixado.status, 200);
   });
 });

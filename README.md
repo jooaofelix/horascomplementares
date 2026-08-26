@@ -153,7 +153,8 @@ Um professor nunca enxerga as turmas, os alunos nem os convites de outro.
 Além do lançamento avulso de horas, o professor tem um mural por turma:
 
 - **Aulas** com título, data e descrição — e rascunho, que o aluno não vê até ser publicado.
-- **Materiais** dentro de cada aula: arquivo (PDF, JPG, PNG ou texto) ou link.
+- **Materiais** dentro de cada aula: arquivo ou link. A própria tela de publicar a aula já aceita o
+  slide ou o PDF, sem precisar de um segundo passo.
 - **Tarefas** com enunciado, prazo, categoria e quantas horas valem.
 
 O aluno abre a turma no celular, baixa o material e entrega ali mesmo — texto, arquivo, ou os dois.
@@ -165,6 +166,13 @@ O professor vê a fila (`3 a avaliar`), lê a entrega e decide:
   categoria da tarefa e o texto entregue. Ninguém redigita nada. Reavaliar com outra carga corrige a
   mesma atividade em vez de criar outra.
 
+### Formatos aceitos
+
+PDF · PPTX, PPT, ODP · DOCX, DOC, ODT · XLSX, XLS, CSV · JPG, PNG, WEBP, HEIC · TXT, MD
+
+Vale tanto para o material da aula quanto para a entrega do aluno. Quando o navegador não informa o
+tipo — comum no celular e com arquivos do Office — o sistema descobre pela extensão do nome.
+
 ### Onde os arquivos ficam
 
 | Onde roda | Destino | Limite por arquivo |
@@ -173,7 +181,8 @@ O professor vê a fila (`3 a avaliar`), lê a entrega e decide:
 | Cloudflare **com** bucket R2 | R2 | 8 MB |
 | Cloudflare **sem** R2 | o próprio D1 | 700 KB |
 
-Funciona sem configurar nada — sem R2, o conteúdo fica no banco. Para liberar arquivos maiores:
+Funciona sem configurar nada — sem R2, o conteúdo fica no banco. **Slides quase sempre passam de
+700 KB**, então, para publicar apresentações, vale criar o bucket:
 
 ```bash
 npx wrangler r2 bucket create horas-arquivos

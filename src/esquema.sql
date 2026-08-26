@@ -152,10 +152,18 @@ CREATE TABLE IF NOT EXISTS arquivos (
   criado_em    TEXT NOT NULL
 );
 
--- Conteúdo dos arquivos quando o destino é o próprio banco (sem R2).
+-- Conteúdo dos arquivos quando o destino é o próprio banco (sem R2). Fica em
+-- partes porque o D1 aceita cerca de 1 MB por valor.
 CREATE TABLE IF NOT EXISTS arquivos_conteudo (
   chave    TEXT PRIMARY KEY,
   conteudo BLOB NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS arquivos_partes (
+  chave    TEXT NOT NULL,
+  parte    INTEGER NOT NULL,
+  conteudo BLOB NOT NULL,
+  PRIMARY KEY (chave, parte)
 );
 
 CREATE TABLE IF NOT EXISTS aulas (

@@ -68,6 +68,7 @@ npx wrangler d1 execute horas-complementares --remote --file=migracoes/005-integ
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/006-cursos-categorias-papeis.sql
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/007-aulas-materiais-entregas.sql
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/008-status-e-auditoria.sql
+npx wrangler d1 execute horas-complementares --remote --file=migracoes/009-arquivos-em-partes.sql
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/004-convites-de-professor.sql
 ```
 
@@ -179,10 +180,14 @@ tipo — comum no celular e com arquivos do Office — o sistema descobre pela e
 | --- | --- | --- |
 | Seu computador | `data/arquivos/` | 8 MB |
 | Cloudflare **com** bucket R2 | R2 | 8 MB |
-| Cloudflare **sem** R2 | o próprio D1 | 700 KB |
+| Cloudflare **sem** R2 | o próprio D1, em partes | 6 MB |
 
-Funciona sem configurar nada — sem R2, o conteúdo fica no banco. **Slides quase sempre passam de
-700 KB**, então, para publicar apresentações, vale criar o bucket:
+Sem R2, o conteúdo é fatiado em pedaços de 600 KB — o D1 aceita cerca de 1 MB por valor, então um
+slide de vários MB cabe assim mesmo. O banco tem 500 MB no plano gratuito, o que dá bastante aula;
+quando apertar, o R2 resolve sem migrar nada, porque cada arquivo guarda em qual destino foi salvo.
+
+Para usar o R2 é preciso ativá-lo uma vez em **dash.cloudflare.com → R2** (a Cloudflare pede um
+cartão mesmo na faixa gratuita). Depois:
 
 ```bash
 npx wrangler r2 bucket create horas-arquivos

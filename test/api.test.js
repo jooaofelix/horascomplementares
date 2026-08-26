@@ -29,9 +29,14 @@ function cliente(base) {
       if (par.startsWith('sessao=')) cookie = par;
     }
     const tipo = resposta.headers.get('content-type') || '';
+    if (tipo.includes('json')) return { status: resposta.status, dados: await resposta.json() };
+    // Conteúdo binário volta como bytes: comparar texto esconderia troca de
+    // ordem entre as partes de um arquivo fatiado.
+    const binario = !tipo.startsWith('text/') && !tipo.includes('html');
     return {
       status: resposta.status,
-      dados: tipo.includes('json') ? await resposta.json() : await resposta.text(),
+      tipo,
+      dados: binario ? Buffer.from(await resposta.arrayBuffer()) : await resposta.text(),
     };
   };
 }
@@ -993,7 +998,7 @@ test('o professor publica aula com material e o aluno vê e baixa o arquivo', as
     assert.equal(doArquivo.arquivo_nome, 'roteiro.pdf');
     const baixado = await ana(`/api/arquivos/${doArquivo.arquivo_id}`);
     assert.equal(baixado.status, 200);
-    assert.match(baixado.dados, /^%PDF-1\.4/);
+    assert.match(baixado.dados.toString('utf8'), /^%PDF-1\.4/);
   });
 });
 
@@ -1034,7 +1039,7 @@ test('formato não aceito e arquivo grande demais são recusados', async () => {
       metodo: 'POST',
       corpo: {
         turma_id: turma.id, titulo: 'Gigante',
-        arquivo: { nome: 'g.pdf', tipo: 'application/pdf', conteudo: Buffer.alloc(800 * 1024, 1).toString('base64') },
+        arquivo: { nome: 'g.pdf', tipo: 'application/pdf', conteudo: Buffer.alloc(7 * 1024 * 1024, 1).toString('base64') },
       },
     });
     assert.equal(grande.status, 413);
@@ -1339,7 +1344,7 @@ test('a tela recebe o limite de tamanho do destino de arquivos', async () => {
   await comAmbiente(async ({ base }) => {
     const { ana } = await turmaComAluno(base);
     const eu = await ana('/api/eu');
-    assert.equal(eu.dados.limite_arquivo, 700 * 1024, 'destino D1 nos testes');
+    assert.equal(eu.dados.limite_arquivo, 6 * 1024 * 1024, 'destino D1 nos testes');
     assert.ok(eu.dados.formatos.includes('pptx'));
   });
 });
@@ -1368,5 +1373,38 @@ test('o aluno entrega a tarefa com arquivo de slide', async () => {
     assert.equal(fila.dados.entregas[0].arquivo_nome, 'caso-clinico.pptx');
     const baixado = await admin(`/api/arquivos/${fila.dados.entregas[0].arquivo_id}`);
     assert.equal(baixado.status, 200);
+  });
+});
+
+test('arquivo de vários MB vai e volta inteiro, fatiado no banco', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, turma, ana } = await turmaComAluno(base);
+
+    // 2,5 MB com conteúdo variado: se a remontagem trocar a ordem das partes,
+    // o que volta não bate.
+    const original = Buffer.alloc(2.5 * 1024 * 1024);
+    for (let i = 0; i < original.length; i++) original[i] = (i * 31 + (i >> 8)) % 251;
+
+    const material = await admin('/api/materiais', {
+      metodo: 'POST',
+      corpo: {
+        turma_id: turma.id, titulo: 'Slides completos',
+        arquivo: {
+          nome: 'aula-completa.pptx',
+          tipo: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          conteudo: original.toString('base64'),
+        },
+      },
+    });
+    assert.equal(material.status, 201, JSON.stringify(material.dados));
+
+    const baixado = await ana(`/api/arquivos/${material.dados.material.arquivo_id}`);
+    assert.equal(baixado.status, 200);
+    assert.equal(baixado.dados.length, original.length, 'volta com o tamanho original');
+    assert.ok(baixado.dados.equals(original), 'volta byte a byte, na ordem certa');
+    assert.match(baixado.tipo, /presentationml/);
+
+    // E continua fechado para quem não está na turma.
+    assert.equal((await cliente(base)(`/api/arquivos/${material.dados.material.arquivo_id}`)).status, 401);
   });
 });

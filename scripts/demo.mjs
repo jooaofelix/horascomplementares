@@ -66,15 +66,52 @@ const dia = (quantos) => {
   return d.toISOString().slice(0, 10);
 };
 
-// ---------------------------------------------------------------- servidor
+// ---------------------------------------------------------------- onde montar
 
-fs.mkdirSync(path.dirname(CAMINHO), { recursive: true });
-for (const sufixo of ['', '-wal', '-shm']) fs.rmSync(CAMINHO + sufixo, { force: true });
+// Sem argumento, a demonstração roda aqui no seu computador. Com
+//   npm run demo -- --em https://seu-site.workers.dev
+// ela é montada no sistema que já está publicado — útil para mostrar a alguém
+// pelo link, mas só numa instalação nova: os dados são de mentira e depois é
+// preciso apagá-los à mão.
+const argumentos = process.argv.slice(2);
+const valorDe = (nome) => {
+  const igual = argumentos.find((a) => a.startsWith(`${nome}=`));
+  if (igual) return igual.slice(nome.length + 1);
+  const solto = argumentos.indexOf(nome);
+  return solto >= 0 ? argumentos[solto + 1] : null;
+};
+const alvo = (valorDe('--em') || process.env.ALVO || '').replace(/\/$/, '');
+const forcar = argumentos.includes('--forcar');
 
-const bd = bancoLocal(CAMINHO);
-const servidor = criarServidor(bd, { arquivos: armazenamentoD1(bd) });
-await new Promise((r) => servidor.listen(PORTA, r));
-const base = `http://127.0.0.1:${PORTA}`;
+let servidor = null;
+let base = alvo;
+
+if (alvo) {
+  console.log(`Montando a demonstração em ${alvo} …`);
+  let eu;
+  try {
+    eu = await (await fetch(`${alvo}/api/eu`)).json();
+  } catch (e) {
+    console.error(`\nNão consegui falar com ${alvo}: ${e.message}\n`
+      + 'Confira o endereço (com https://) e se o site está no ar.\n');
+    process.exit(1);
+  }
+  // Instalação que já tem gente dentro não recebe dados de mentira por acidente.
+  if (eu.convite_obrigatorio && !forcar) {
+    console.error(`\nEsse endereço já tem contas de professor cadastradas.\n`
+      + 'A demonstração cria pessoas e turmas fictícias, e não sei apagar o que já está lá.\n'
+      + 'Se ainda assim quiser, repita o comando com --forcar.\n');
+    process.exit(1);
+  }
+} else {
+  fs.mkdirSync(path.dirname(CAMINHO), { recursive: true });
+  for (const sufixo of ['', '-wal', '-shm']) fs.rmSync(CAMINHO + sufixo, { force: true });
+
+  const bd = bancoLocal(CAMINHO);
+  servidor = criarServidor(bd, { arquivos: armazenamentoD1(bd) });
+  await new Promise((r) => servidor.listen(PORTA, r));
+  base = `http://127.0.0.1:${PORTA}`;
+}
 
 // Cada pessoa da demonstração é um cliente com o próprio cookie de sessão.
 function pessoa() {
@@ -115,7 +152,7 @@ async function entrarComoAluno(nome, email, codigoTurma, matricula) {
 
 // ---------------------------------------------------------------- a faculdade
 
-console.log('Montando a faculdade de demonstração…');
+if (!alvo) console.log('Montando a faculdade de demonstração…');
 
 // A primeira conta entra sem convite e já como administradora.
 const marina = await entrarComoProfessor(
@@ -451,8 +488,8 @@ const chave = await marina('/api/chaves', { metodo: 'POST', corpo: { nome: 'Port
 const linha = '─'.repeat(64);
 console.log(`
 ${linha}
-  Demonstração no ar:  http://localhost:${PORTA}
-  Banco:               data/demo.db  (refeito a cada "npm run demo")
+  Demonstração no ar:  ${alvo || `http://localhost:${PORTA}`}
+  Banco:               ${alvo ? 'o banco publicado (D1)' : 'data/demo.db  (refeito a cada "npm run demo")'}
 ${linha}
 
   ENTRE COMO PROFESSORA  (senha de todo mundo: ${SENHA})
@@ -479,6 +516,12 @@ ${linha}
 
   Chave de integração criada: ${chave.token}
 
-  Ctrl+C encerra. Rodar de novo apaga tudo e monta outra vez.
+  ${alvo
+    ? 'Os dados ficaram no banco publicado. Para começar limpo de novo:\n'
+      + '  npx wrangler d1 execute horas-complementares --remote --file=scripts/limpar.sql'
+    : 'Ctrl+C encerra. Rodar de novo apaga tudo e monta outra vez.'}
 ${linha}
 `);
+
+// Montada em outro lugar, não há servidor local para segurar de pé.
+if (alvo) process.exit(0);

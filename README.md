@@ -116,6 +116,20 @@ todo mundo é `demo1234`) e os códigos das salas.
 O banco da demonstração é um arquivo à parte (`data/demo.db`), refeito a cada vez: nada disso
 encosta no banco de verdade, e rodar de novo devolve tudo ao estado inicial.
 
+Para mostrar a alguém pelo link, a mesma demonstração pode ser montada **no sistema publicado**:
+
+```bash
+npm run demo -- --em https://horas-complementares.SEU-USUARIO.workers.dev
+```
+
+Só funciona numa instalação ainda vazia — se já houver conta de professor lá, o comando recusa,
+porque os dados são fictícios e ele não saberia separá-los dos de verdade. Para limpar depois:
+
+```bash
+npm run banco:backup   # se houver algo de verdade lá dentro
+npx wrangler d1 execute horas-complementares --remote --file=scripts/limpar.sql
+```
+
 ## Papéis
 
 | Papel | Enxerga | Faz |

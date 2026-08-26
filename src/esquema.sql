@@ -179,6 +179,18 @@ CREATE TABLE IF NOT EXISTS aulas (
   atualizada_em TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS aulas_turmas (
+  aula_id  INTEGER NOT NULL REFERENCES aulas(id) ON DELETE CASCADE,
+  turma_id INTEGER NOT NULL REFERENCES turmas(id) ON DELETE CASCADE,
+  PRIMARY KEY (aula_id, turma_id)
+);
+
+CREATE TABLE IF NOT EXISTS tarefas_turmas (
+  tarefa_id INTEGER NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+  turma_id  INTEGER NOT NULL REFERENCES turmas(id) ON DELETE CASCADE,
+  PRIMARY KEY (tarefa_id, turma_id)
+);
+
 CREATE TABLE IF NOT EXISTS materiais (
   id         INTEGER PRIMARY KEY,
   turma_id   INTEGER NOT NULL REFERENCES turmas(id) ON DELETE CASCADE,

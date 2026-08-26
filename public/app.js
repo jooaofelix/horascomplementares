@@ -58,8 +58,9 @@ const dataBr = (iso) => {
   return `${d}/${m}/${a}`;
 };
 
-function avisar(mensagem, tipo = 'erro', alvo = '#aviso-app') {
-  const el = $(alvo);
+function avisar(mensagem, tipo = 'erro', alvo = null) {
+  const emConfig = !$('#tela-config').classList.contains('oculto');
+  const el = $(alvo ?? (emConfig ? '#aviso-config' : '#aviso-app'));
   el.textContent = mensagem;
   el.className = `aviso ${tipo}`;
   el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -155,6 +156,26 @@ $('#form-cadastro').onsubmit = async (e) => {
     $('#aviso-entrada').classList.remove('oculto');
   }
 };
+
+// ---- configurações (engrenagem) ----
+
+function abrirConfiguracoes(abrir) {
+  $('#tela-config').classList.toggle('oculto', !abrir);
+  $('#tela-app').classList.toggle('oculto', abrir);
+  if (abrir) window.scrollTo({ top: 0 });
+}
+
+$('#btn-config').onclick = () => abrirConfiguracoes(true);
+$('#btn-voltar').onclick = () => abrirConfiguracoes(false);
+
+$$('#abas-config button').forEach((botao) => {
+  botao.onclick = () => {
+    $$('#abas-config button').forEach((b) => b.classList.toggle('ativa', b === botao));
+    for (const secao of ['meus', 'cursos', 'usuarios', 'convites', 'integracao']) {
+      $(`#config-${secao}`).classList.toggle('oculto', secao !== botao.dataset.config);
+    }
+  };
+});
 
 $('#btn-sair').onclick = async () => {
   await api('/api/logout', { metodo: 'POST' });
@@ -456,10 +477,12 @@ async function lerArquivo(arquivo) {
 
 // ---------------------------------------------------------------- professor
 
-$$('.abas button').forEach((botao) => {
+$$('#abas-professor button').forEach((botao) => {
   botao.onclick = () => {
-    $$('.abas button').forEach((b) => b.classList.toggle('ativa', b === botao));
-    for (const aba of ['turma', 'registros', 'aulas', 'turmas', 'convites', 'integracao', 'cursos', 'usuarios', 'ajustes']) {
+    $$('#abas-professor button').forEach((b) => b.classList.toggle('ativa', b === botao));
+    // Só as abas do dia a dia: cursos, pessoas, convites e integração agora
+    // vivem na tela de configurações e não são tocadas aqui.
+    for (const aba of ['aulas', 'turma', 'registros', 'turmas']) {
       $(`#aba-${aba}`).classList.toggle('oculto', aba !== botao.dataset.aba);
     }
     $('#filtro-turma-cartao').classList.toggle(
@@ -1110,6 +1133,20 @@ function blocoTarefaProfessor(t) {
   </div>`;
 }
 
+function desenharEscolhaTurmas() {
+  const caixa = $('#nova-aula-turmas');
+  if (!caixa) return;
+  caixa.innerHTML = estado.turmas.length
+    ? estado.turmas.map((t) => `<label class="opcao-turma">
+        <input type="checkbox" value="${t.id}" ${String(t.id) === String(estado.turmaFiltro) || estado.turmas.length === 1 ? 'checked' : ''}>
+        <span>${escapar(t.nome)}${t.periodo ? ` <span class="sub">· ${escapar(t.periodo)}</span>` : ''}</span>
+      </label>`).join('')
+    : '<p class="vazio">Crie uma turma antes de publicar aulas.</p>';
+}
+
+const turmasMarcadas = () =>
+  Array.from(document.querySelectorAll('#nova-aula-turmas input:checked')).map((c) => Number(c.value));
+
 function desenharMuralProfessor() {
   const mural = estado.mural;
   if (!mural) {
@@ -1119,13 +1156,14 @@ function desenharMuralProfessor() {
   const categorias = estado.categorias.filter((c) => c.ativa)
     .map((c) => `<option value="${c.id}">${escapar(c.nome)}</option>`).join('');
 
-  const bloco = (titulo, sub, aulaId, materiais, tarefas, descricao, publicada) => `
+  const bloco = (titulo, sub, aulaId, materiais, tarefas, descricao, publicada, turmasDaAula = '') => `
     <div class="cartao">
       <div class="cabecalho">
         <h2 style="flex:1">${escapar(titulo)}</h2>
         ${publicada === 0 ? '<span class="selo esperando">rascunho</span>' : ''}
       </div>
       ${sub ? `<p class="explicacao" style="margin-bottom:8px">${escapar(sub)}</p>` : ''}
+      ${turmasDaAula ? `<p class="sub" style="margin:-4px 0 12px">Turmas: ${escapar(turmasDaAula)}</p>` : ''}
       ${descricao ? `<p style="margin:0 0 14px">${escapar(descricao)}</p>` : ''}
 
       ${materiais.length ? materiais.map((m) => blocoMaterial(m, true)).join('') : '<p class="vazio">Sem material ainda.</p>'}
@@ -1168,6 +1206,7 @@ function desenharMuralProfessor() {
   $('#mural-professor').innerHTML = [
     ...mural.aulas.map((a) => bloco(
       a.titulo, a.data_aula ? dataBr(a.data_aula) : '', a.id, a.materiais, a.tarefas, a.descricao, a.publicada,
+      (a.turmas ?? []).map((t) => t.nome).join(' · '),
     )),
     bloco('Material e tarefas da turma', 'Sem vínculo com uma aula específica', '',
       mural.avulsos.materiais, mural.avulsos.tarefas, null, 1),
@@ -1186,13 +1225,13 @@ async function carregarMuralProfessor() {
 }
 
 $('#btn-criar-aula').onclick = async () => {
-  const turmaId = estado.mural?.turma_id || estado.turmaFiltro || estado.turmas[0]?.id;
-  if (!turmaId) return avisar('Crie uma turma antes de publicar aulas.');
+  const turmas = turmasMarcadas();
+  if (!turmas.length) return avisar('Marque ao menos uma turma para receber a aula.');
   try {
     await api('/api/aulas', {
       metodo: 'POST',
       corpo: {
-        turma_id: turmaId,
+        turma_ids: turmas,
         titulo: $('#nova-aula-titulo').value,
         data_aula: $('#nova-aula-data').value,
         descricao: $('#nova-aula-descricao').value,
@@ -1271,6 +1310,7 @@ $('#mural-professor').addEventListener('click', async (e) => {
             <div class="item" style="margin-bottom:8px">
               <div class="cabecalho">
                 <span class="titulo">${escapar(en.aluno_nome)}</span>
+                ${en.turma_nome ? `<span class="sub">${escapar(en.turma_nome)}</span>` : ''}
                 ${SELO_ENTREGA[en.status]}
               </div>
               ${en.texto ? `<pre style="margin-top:10px">${escapar(en.texto)}</pre>` : ''}
@@ -1290,7 +1330,8 @@ $('#mural-professor').addEventListener('click', async (e) => {
               </div>
             </div>`).join('') : '<p class="vazio">Ninguém entregou ainda.</p>'}
           ${semEntregar.length
-            ? `<p class="sub">Ainda não entregaram: ${semEntregar.map((a) => escapar(a.nome)).join(', ')}</p>`
+            ? `<p class="sub">Ainda não entregaram: ${semEntregar.map((a) =>
+                escapar(a.nome) + (a.turma_nome ? ` (${escapar(a.turma_nome)})` : '')).join(', ')}</p>`
             : ''}
         </div>`;
     }
@@ -1342,7 +1383,7 @@ async function carregarProfessor() {
       return `<option value="${t.id}" ${String(t.id) === String(estado.turmaFiltro) ? 'selected' : ''}>${escapar(rotulo)}</option>`;
     }),
   ].join('');
-  const abaAtiva = document.querySelector('.abas button.ativa')?.dataset.aba;
+  const abaAtiva = document.querySelector('#abas-professor button.ativa')?.dataset.aba;
   $('#filtro-turma-cartao').classList.toggle(
     'oculto',
     estado.turmas.length < 2 || !['turma', 'registros'].includes(abaAtiva),
@@ -1351,6 +1392,7 @@ async function carregarProfessor() {
   desenharAlunos();
   desenharListaProfessor();
   desenharTurmas();
+  desenharEscolhaTurmas();
   await carregarMuralProfessor();
 }
 
@@ -1371,18 +1413,21 @@ async function iniciar() {
   const u = estado.usuario;
   if (EQUIPE.includes(u.papel)) {
     const cargo = { admin: 'administração', coordenador: 'coordenação', professor: 'professor(a)' }[u.papel];
-    $('#identificacao').textContent = [u.nome, cargo, u.instituicao].filter(Boolean).join(' · ');
+    $('#titulo-app').textContent = u.instituicao || 'Sala de Aula';
+    $('#identificacao').textContent = [u.nome, cargo].filter(Boolean).join(' · ');
+    $('#identificacao-config').textContent = $('#identificacao').textContent;
     $('#painel-professor').classList.remove('oculto');
     $('#painel-aluno').classList.add('oculto');
     $('#cfg-nome').value = u.nome;
     $('#cfg-instituicao').value = u.instituicao || '';
     estado.turmas = dados.turmas || [];
-    $('#aba-botao-convites').classList.toggle('oculto', !u.pode_convidar);
+    $('#config-botao-convites').classList.toggle('oculto', !u.pode_convidar);
+    $('#config-botao-integracao').classList.remove('oculto');
     const limiteMb = (estado.limiteArquivo / (1024 * 1024)).toFixed(1).replace('.', ',');
     const ajuda = $('#ajuda-formatos');
     if (ajuda) ajuda.textContent = `PDF, PPTX, DOCX, planilha, imagem ou texto — até ${limiteMb} MB por arquivo.`;
-    $('#aba-botao-cursos').classList.toggle('oculto', u.papel !== 'admin');
-    $('#aba-botao-usuarios').classList.toggle('oculto', u.papel !== 'admin');
+    $('#config-botao-cursos').classList.toggle('oculto', u.papel !== 'admin');
+    $('#config-botao-usuarios').classList.toggle('oculto', u.papel !== 'admin');
     estado.categorias = dados.categorias;
     estado.cursos = dados.cursos || [];
     await carregarProfessor();
@@ -1391,7 +1436,9 @@ async function iniciar() {
     if (u.pode_convidar) await carregarConvites();
   } else {
     const prof = dados.professor;
+    $('#titulo-app').textContent = prof?.instituicao || 'Sala de Aula';
     $('#identificacao').textContent = [u.nome, u.turma_nome].filter(Boolean).join(' · ');
+    $('#identificacao-config').textContent = $('#identificacao').textContent;
     $('#explicacao-progresso').textContent = u.turma_nome
       ? `Turma ${u.turma_nome}${prof?.nome ? ' · Prof(a). ' + prof.nome : ''}`
       : 'Você ainda não está em uma turma — informe o código em “Seus dados”.';

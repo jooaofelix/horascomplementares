@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#f4f6f5">
-  <title>Horas Complementares</title>
+  <title>Sala de Aula</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱️</text></svg>">
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -15,8 +15,8 @@
 <section id="tela-entrada" class="envolucro oculto">
   <div class="entrada">
     <div class="marca">
-      <h1>Horas Complementares</h1>
-      <p>Alunos lançam as atividades. O professor confere e valida.</p>
+      <h1>Sala de Aula</h1>
+      <p>Aulas, materiais e tarefas da sua turma — e o controle das horas complementares.</p>
     </div>
 
     <div class="cartao">
@@ -91,9 +91,11 @@
 <section id="tela-app" class="envolucro oculto">
   <header class="topo">
     <div class="identidade">
-      <div><h1 id="titulo-app">Horas Complementares</h1></div>
+      <div><h1 id="titulo-app">Sala de Aula</h1></div>
       <div class="subtitulo" id="identificacao"></div>
     </div>
+    <button class="secundario mini" id="btn-config" title="Configurações"
+            style="width:auto;flex:0 0 auto" aria-label="Configurações">⚙</button>
     <button class="secundario mini" id="btn-sair" style="width:auto;flex:0 0 auto">Sair</button>
   </header>
 
@@ -101,8 +103,14 @@
 
   <!-- ---- ALUNO ---- -->
   <div id="painel-aluno" class="oculto">
+    <div class="cartao oculto" id="cartao-mural-aluno">
+      <h2>Aulas e tarefas</h2>
+      <p class="explicacao">O que o professor publicou na sua turma. Toque para abrir o material ou entregar.</p>
+      <div id="mural-aluno"></div>
+    </div>
+
     <div class="cartao">
-      <h2>Seu progresso</h2>
+      <h2>Minhas horas complementares</h2>
       <p class="explicacao" id="explicacao-progresso"></p>
       <div class="numeros">
         <div class="numero"><div class="valor" id="n-validado">0</div><div class="rotulo">aprovadas</div></div>
@@ -212,46 +220,15 @@
       <div id="lista-aluno"></div>
       <button class="secundario" id="btn-exportar-aluno" style="margin-top:12px">Baixar minha planilha</button>
     </div>
-
-    <div class="cartao oculto" id="cartao-mural-aluno">
-      <h2>Aulas e tarefas</h2>
-      <p class="explicacao">O que o professor publicou na sua turma.</p>
-      <div id="mural-aluno"></div>
-    </div>
-
-    <div class="cartao">
-      <h2>Seus dados</h2>
-      <p class="explicacao">Entrou na turma errada? Digite o código novo aqui.</p>
-      <div class="linha">
-        <div class="campo">
-          <label for="meus-nome">Nome</label>
-          <input id="meus-nome" maxlength="120">
-        </div>
-        <div class="campo">
-          <label for="meus-matricula">Matrícula <span class="opcional">(opcional)</span></label>
-          <input id="meus-matricula" maxlength="40">
-        </div>
-        <div class="campo">
-          <label for="meus-codigo">Código de outra turma <span class="opcional">(opcional)</span></label>
-          <input id="meus-codigo" maxlength="12" autocapitalize="characters" style="text-transform:uppercase">
-        </div>
-      </div>
-      <button class="secundario" id="btn-salvar-meus">Salvar meus dados</button>
-    </div>
   </div>
 
   <!-- ---- PROFESSOR ---- -->
   <div id="painel-professor" class="oculto">
-    <div class="abas">
-      <button class="ativa" data-aba="turma">Alunos</button>
-      <button data-aba="registros">Validar <span id="contador-pendentes"></span></button>
-      <button data-aba="aulas">Aulas</button>
+    <div class="abas" id="abas-professor">
+      <button class="ativa" data-aba="aulas">Aulas</button>
+      <button data-aba="turma">Alunos</button>
+      <button data-aba="registros">Horas <span id="contador-pendentes"></span></button>
       <button data-aba="turmas">Turmas</button>
-      <button data-aba="convites" class="oculto" id="aba-botao-convites">Convites</button>
-      <button data-aba="integracao">Integração</button>
-      <button data-aba="cursos" class="oculto" id="aba-botao-cursos">Cursos</button>
-      <button data-aba="usuarios" class="oculto" id="aba-botao-usuarios">Pessoas</button>
-      <button data-aba="ajustes">Meus dados</button>
     </div>
 
     <div class="cartao oculto" id="filtro-turma-cartao">
@@ -289,6 +266,11 @@
         <div class="campo">
           <label for="nova-aula-titulo">Título</label>
           <input id="nova-aula-titulo" maxlength="160" placeholder="Ex.: Aula 3 — Registro cursivo">
+        </div>
+        <div class="campo">
+          <label>Turmas que recebem esta aula</label>
+          <div id="nova-aula-turmas" class="escolha-turmas"></div>
+          <div class="ajuda">Marque quantas quiser — a mesma aula serve 3A e 3B sem repetir o trabalho.</div>
         </div>
         <div class="linha">
           <div class="campo">
@@ -345,49 +327,74 @@
       <div class="grade" id="lista-turmas"></div>
     </div>
 
-    <div id="aba-convites" class="oculto">
-      <div class="cartao">
-        <h2>Convidar outro professor</h2>
-        <p class="explicacao">
-          Cada convite vale para <strong>uma</strong> conta de professor. Quem entra por ele cria as
-          próprias turmas e não enxerga as suas.
-        </p>
-        <div class="campo">
-          <label for="novo-convite-obs">Para quem é <span class="opcional">(opcional, só para você lembrar)</span></label>
-          <input id="novo-convite-obs" maxlength="120" placeholder="Ex.: Profa. Helena — Psicologia Social">
-        </div>
-        <button id="btn-criar-convite">Gerar convite</button>
-      </div>
-      <div class="grade" id="lista-convites"></div>
-    </div>
+    
 
-    <div id="aba-integracao" class="oculto">
-      <div class="cartao">
-        <h2>Receber horas de outro sistema</h2>
-        <p class="explicacao">
-          Gere uma chave para o sistema que vai enviar as atividades já apuradas (exercícios,
-          eventos, monitoria). Ele envia, os alunos aparecem aqui e você valida como sempre.
-        </p>
+    
+
+    
+
+    
+
+    
+  </div>
+</section>
+
+
+<!-- ================= CONFIGURAÇÕES ================= -->
+<section id="tela-config" class="envolucro oculto">
+  <header class="topo">
+    <div class="identidade">
+      <div><h1>Configurações</h1></div>
+      <div class="subtitulo" id="identificacao-config"></div>
+    </div>
+    <button class="secundario mini" id="btn-voltar" style="width:auto;flex:0 0 auto">Voltar</button>
+  </header>
+
+  <div id="aviso-config" class="aviso oculto"></div>
+
+  <div class="abas" id="abas-config">
+    <button class="ativa" data-config="meus">Meus dados</button>
+    <button data-config="cursos" class="oculto" id="config-botao-cursos">Cursos e categorias</button>
+    <button data-config="usuarios" class="oculto" id="config-botao-usuarios">Pessoas</button>
+    <button data-config="convites" class="oculto" id="config-botao-convites">Convites</button>
+    <button data-config="integracao" class="oculto" id="config-botao-integracao">Integração</button>
+  </div>
+
+  <div id="config-meus"><div class="cartao">
+      <h2>Seus dados</h2>
+      <p class="explicacao">Entrou na turma errada? Digite o código novo aqui.</p>
+      <div class="linha">
         <div class="campo">
-          <label for="nova-chave-nome">Nome do sistema</label>
-          <input id="nova-chave-nome" maxlength="80" placeholder="Ex.: Portal de Exercícios">
+          <label for="meus-nome">Nome</label>
+          <input id="meus-nome" maxlength="120">
         </div>
-        <button id="btn-criar-chave">Gerar chave</button>
-        <div id="chave-nova" class="oculto" style="margin-top:18px">
-          <div class="observacao">
-            <strong>Guarde agora:</strong> a chave aparece uma única vez. Depois só é possível revogar
-            e gerar outra.
-          </div>
-          <div class="codigo-turma" style="margin-top:12px">
-            <span class="valor" id="chave-valor" style="font-size:14px;word-break:break-all"></span>
-            <button class="secundario mini" id="btn-copiar-chave">Copiar</button>
-          </div>
+        <div class="campo">
+          <label for="meus-matricula">Matrícula <span class="opcional">(opcional)</span></label>
+          <input id="meus-matricula" maxlength="40">
+        </div>
+        <div class="campo">
+          <label for="meus-codigo">Código de outra turma <span class="opcional">(opcional)</span></label>
+          <input id="meus-codigo" maxlength="12" autocapitalize="characters" style="text-transform:uppercase">
         </div>
       </div>
-      <div class="grade" id="lista-chaves"></div>
+      <button class="secundario" id="btn-salvar-meus">Salvar meus dados</button>
     </div>
-
-    <div id="aba-cursos" class="oculto">
+  <div id="aba-ajustes" class="cartao">
+      <h2>Meus dados</h2>
+      <p class="explicacao">Aparecem para os seus alunos.</p>
+      <div class="linha">
+        <div class="campo">
+          <label for="cfg-nome">Seu nome</label>
+          <input id="cfg-nome" maxlength="120">
+        </div>
+        <div class="campo">
+          <label for="cfg-instituicao">Instituição / curso <span class="opcional">(opcional)</span></label>
+          <input id="cfg-instituicao" maxlength="160">
+        </div>
+      </div>
+      <button id="btn-salvar-perfil">Salvar</button>
+    </div></div>
+  <div id="config-cursos" class="oculto"><div id="aba-cursos" >
       <div class="cartao">
         <h2>Novo curso</h2>
         <p class="explicacao">A carga obrigatória do curso é a meta de todos os alunos dele.</p>
@@ -426,31 +433,53 @@
         </div>
         <button class="secundario" id="btn-criar-categoria">Adicionar categoria</button>
       </div>
-    </div>
-
-    <div id="aba-usuarios" class="cartao oculto">
+    </div></div>
+  <div id="config-usuarios" class="oculto"><div id="aba-usuarios" class="cartao">
       <h2>Pessoas</h2>
       <p class="explicacao">Defina papel e curso de cada pessoa. Coordenador enxerga o curso inteiro.</p>
       <input id="busca-usuarios" placeholder="Buscar por nome ou e-mail" style="margin-bottom:16px">
       <div class="grade" id="lista-usuarios"></div>
-    </div>
-
-    <div id="aba-ajustes" class="cartao oculto">
-      <h2>Meus dados</h2>
-      <p class="explicacao">Aparecem para os seus alunos.</p>
-      <div class="linha">
+    </div></div>
+  <div id="config-convites" class="oculto"><div id="aba-convites" >
+      <div class="cartao">
+        <h2>Convidar outro professor</h2>
+        <p class="explicacao">
+          Cada convite vale para <strong>uma</strong> conta de professor. Quem entra por ele cria as
+          próprias turmas e não enxerga as suas.
+        </p>
         <div class="campo">
-          <label for="cfg-nome">Seu nome</label>
-          <input id="cfg-nome" maxlength="120">
+          <label for="novo-convite-obs">Para quem é <span class="opcional">(opcional, só para você lembrar)</span></label>
+          <input id="novo-convite-obs" maxlength="120" placeholder="Ex.: Profa. Helena — Psicologia Social">
         </div>
+        <button id="btn-criar-convite">Gerar convite</button>
+      </div>
+      <div class="grade" id="lista-convites"></div>
+    </div></div>
+  <div id="config-integracao" class="oculto"><div id="aba-integracao" >
+      <div class="cartao">
+        <h2>Receber horas de outro sistema</h2>
+        <p class="explicacao">
+          Gere uma chave para o sistema que vai enviar as atividades já apuradas (exercícios,
+          eventos, monitoria). Ele envia, os alunos aparecem aqui e você valida como sempre.
+        </p>
         <div class="campo">
-          <label for="cfg-instituicao">Instituição / curso <span class="opcional">(opcional)</span></label>
-          <input id="cfg-instituicao" maxlength="160">
+          <label for="nova-chave-nome">Nome do sistema</label>
+          <input id="nova-chave-nome" maxlength="80" placeholder="Ex.: Portal de Exercícios">
+        </div>
+        <button id="btn-criar-chave">Gerar chave</button>
+        <div id="chave-nova" class="oculto" style="margin-top:18px">
+          <div class="observacao">
+            <strong>Guarde agora:</strong> a chave aparece uma única vez. Depois só é possível revogar
+            e gerar outra.
+          </div>
+          <div class="codigo-turma" style="margin-top:12px">
+            <span class="valor" id="chave-valor" style="font-size:14px;word-break:break-all"></span>
+            <button class="secundario mini" id="btn-copiar-chave">Copiar</button>
+          </div>
         </div>
       </div>
-      <button id="btn-salvar-perfil">Salvar</button>
-    </div>
-  </div>
+      <div class="grade" id="lista-chaves"></div>
+    </div></div>
 </section>
 
 <script src="/app.js" type="module"></script>

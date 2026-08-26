@@ -1,9 +1,12 @@
-# Horas Complementares
+# Sala de Aula
 
-Sistema web para alunos registrarem horas complementares junto com a **análise escrita** de cada
-atividade: o aluno digita direto no navegador ou anexa um arquivo `.txt` / `.md`, e o texto fica
-guardado junto com as horas. O professor acompanha o total de cada aluno e coloca o selo de
-validação nos registros que conferiu.
+Sistema web da faculdade para o dia a dia da turma: o professor publica **aulas** com slides e
+materiais, cria **tarefas** com prazo, e os alunos entregam pelo celular. O controle de **horas
+complementares** é uma das partes — e a que fecha o ciclo, porque uma tarefa aceita vira hora
+validada sem ninguém redigitar nada.
+
+A ideia é a de um Google Classroom próprio da instituição, com a parte de horas complementares que
+o Classroom não tem.
 
 Cada professor é dono das próprias turmas: ele se cadastra sozinho, cria as turmas e recebe um
 **código** por turma. Só quem tem o código entra, e um professor nunca enxerga os alunos de outro —
@@ -85,6 +88,19 @@ npx wrangler dev --local
 > Os dois modos têm bancos separados: o que você cadastrar em `npm start` não aparece no site
 > publicado, e vice-versa.
 
+## Onde fica cada coisa
+
+A tela do dia a dia tem só o que se usa toda semana:
+
+| Quem | Vê |
+| --- | --- |
+| **Aluno** | as aulas e tarefas da turma primeiro; abaixo, as próprias horas complementares |
+| **Professor** | abas **Aulas**, **Alunos**, **Horas** e **Turmas** |
+
+O resto — cursos e categorias, pessoas, convites, integração e os próprios dados — fica atrás da
+**engrenagem** no canto superior, numa tela de configurações com suas próprias abas. É configuração
+de instalação, não trabalho de aula.
+
 ## Papéis
 
 | Papel | Enxerga | Faz |
@@ -153,10 +169,14 @@ Um professor nunca enxerga as turmas, os alunos nem os convites de outro.
 
 Além do lançamento avulso de horas, o professor tem um mural por turma:
 
-- **Aulas** com título, data e descrição — e rascunho, que o aluno não vê até ser publicado.
+- **Aulas** com título, data e descrição — e rascunho, que o aluno não vê até ser publicado. Uma
+  mesma aula pode ser publicada para **várias turmas de uma vez**: o professor de 3A e 3B monta o
+  material uma vez só, e cada turma vê no mural dela.
 - **Materiais** dentro de cada aula: arquivo ou link. A própria tela de publicar a aula já aceita o
   slide ou o PDF, sem precisar de um segundo passo.
-- **Tarefas** com enunciado, prazo, categoria e quantas horas valem.
+- **Tarefas** com enunciado, prazo, categoria e quantas horas valem. Tarefa criada dentro de uma
+  aula compartilhada alcança as mesmas turmas dela, e a fila de correção junta as entregas de todas,
+  com o nome da turma ao lado de cada aluno.
 
 O aluno abre a turma no celular, baixa o material e entrega ali mesmo — texto, arquivo, ou os dois.
 O professor vê a fila (`3 a avaliar`), lê a entrega e decide:

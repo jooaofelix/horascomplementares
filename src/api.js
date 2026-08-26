@@ -582,7 +582,14 @@ async function arquivoPermitido(bd, arquivoId, usuario) {
   if (!arquivo) return null;
   if (arquivo.enviado_por === usuario.id) return arquivo;
 
-  const material = await bd.get('SELECT turma_id FROM materiais WHERE arquivo_id = ?', arquivoId);
+  const material = await bd.get(
+    `SELECT COALESCE(
+              (SELECT at.turma_id FROM aulas_turmas at WHERE at.aula_id = m.aula_id
+                AND (? = 0 OR at.turma_id = ?) LIMIT 1),
+              m.turma_id) AS turma_id
+       FROM materiais m WHERE m.arquivo_id = ?`,
+    usuario.papel === 'aluno' ? 1 : 0, usuario.turma_id ?? 0, arquivoId,
+  );
   const entrega = await bd.get(
     `SELECT e.aluno_id, t.turma_id FROM entregas e JOIN tarefas t ON t.id = e.tarefa_id
       WHERE e.arquivo_id = ?`,
@@ -598,28 +605,84 @@ async function arquivoPermitido(bd, arquivoId, usuario) {
   return (await turmaVisivel(bd, turmaId, usuario)) ? arquivo : null;
 }
 
+// ---------- aulas e tarefas em várias turmas ----------
+
+// Recebe uma lista de turmas (ou uma só, no formato antigo) e devolve as que
+// quem está publicando realmente alcança.
+async function turmasDoPedido(bd, corpo, usuario) {
+  const brutas = Array.isArray(corpo.turma_ids) && corpo.turma_ids.length
+    ? corpo.turma_ids
+    : [corpo.turma_id].filter((v) => v !== undefined && v !== null && v !== '');
+  if (!brutas.length) throw erro(400, 'Escolha ao menos uma turma.');
+
+  const turmas = [];
+  for (const id of [...new Set(brutas.map(Number))]) {
+    turmas.push(await turmaDoPedido(bd, id, usuario));
+  }
+  return turmas;
+}
+
+async function vincular(bd, tabela, coluna, id, turmas) {
+  await bd.run(`DELETE FROM ${tabela} WHERE ${coluna} = ?`, id);
+  for (const turma of turmas) {
+    await bd.run(`INSERT OR IGNORE INTO ${tabela}(${coluna}, turma_id) VALUES(?, ?)`, id, turma.id);
+  }
+}
+
+const turmasDaAula = (bd, aulaId) =>
+  bd.all(
+    `SELECT t.id, t.nome FROM aulas_turmas at JOIN turmas t ON t.id = at.turma_id
+      WHERE at.aula_id = ? ORDER BY t.nome COLLATE NOCASE`,
+    aulaId,
+  );
+
+const turmasDaTarefa = (bd, tarefaId) =>
+  bd.all(
+    `SELECT t.id, t.nome FROM tarefas_turmas tt JOIN turmas t ON t.id = tt.turma_id
+      WHERE tt.tarefa_id = ? ORDER BY t.nome COLLATE NOCASE`,
+    tarefaId,
+  );
+
+// Quem publicou alcança pelo menos uma das turmas da aula/tarefa.
+async function alcanca(bd, tabela, coluna, id, usuario) {
+  const { filtro, parametros } = escopoTurmas(usuario);
+  return bd.get(
+    `SELECT 1 AS existe FROM ${tabela} v JOIN turmas t ON t.id = v.turma_id
+      WHERE v.${coluna} = ? ${filtro} LIMIT 1`,
+    id, ...parametros,
+  );
+}
+
 // ---------- mural da turma ----------
 
 async function muralDaTurma(bd, turmaId, usuario) {
   const aulas = await bd.all(
-    `SELECT id, titulo, descricao, data_aula, ordem, publicada
-       FROM aulas WHERE turma_id = ? ORDER BY COALESCE(data_aula, '9999'), ordem, id`,
+    `SELECT a.id, a.titulo, a.descricao, a.data_aula, a.ordem, a.publicada
+       FROM aulas a JOIN aulas_turmas at ON at.aula_id = a.id
+      WHERE at.turma_id = ? ORDER BY COALESCE(a.data_aula, '9999'), a.ordem, a.id`,
     turmaId,
   );
+  // Material de aula compartilhada aparece nas duas turmas; material solto é da
+  // turma em que foi criado.
   const materiais = await bd.all(
     `SELECT m.id, m.aula_id, m.tipo, m.titulo, m.descricao, m.url, m.arquivo_id,
             a.nome AS arquivo_nome, a.tipo AS arquivo_tipo, a.tamanho AS arquivo_tamanho
        FROM materiais m LEFT JOIN arquivos a ON a.id = m.arquivo_id
-      WHERE m.turma_id = ? ORDER BY m.id`,
-    turmaId,
+      WHERE (m.aula_id IN (SELECT aula_id FROM aulas_turmas WHERE turma_id = ?))
+         OR (m.aula_id IS NULL AND m.turma_id = ?)
+      ORDER BY m.id`,
+    turmaId, turmaId,
   );
   const tarefas = await bd.all(
     `SELECT t.id, t.aula_id, t.titulo, t.enunciado, t.prazo, t.horas_sugeridas, t.publicada,
             c.nome AS categoria_nome,
             (SELECT COUNT(*) FROM entregas e WHERE e.tarefa_id = t.id) AS entregas,
-            (SELECT COUNT(*) FROM entregas e WHERE e.tarefa_id = t.id AND e.status = 'enviada') AS a_avaliar
-       FROM tarefas t LEFT JOIN categorias c ON c.id = t.categoria_id
-      WHERE t.turma_id = ? ORDER BY COALESCE(t.prazo, '9999'), t.id`,
+            (SELECT COUNT(*) FROM entregas e WHERE e.tarefa_id = t.id AND e.status = 'enviada') AS a_avaliar,
+            (SELECT COUNT(*) FROM tarefas_turmas x WHERE x.tarefa_id = t.id) AS turmas
+       FROM tarefas t
+       JOIN tarefas_turmas tt ON tt.tarefa_id = t.id
+       LEFT JOIN categorias c ON c.id = t.categoria_id
+      WHERE tt.turma_id = ? ORDER BY COALESCE(t.prazo, '9999'), t.id`,
     turmaId,
   );
 
@@ -628,16 +691,21 @@ async function muralDaTurma(bd, turmaId, usuario) {
     ? await bd.all(
         `SELECT e.*, a.nome AS arquivo_nome FROM entregas e
            LEFT JOIN arquivos a ON a.id = e.arquivo_id
-          WHERE e.aluno_id = ? AND e.tarefa_id IN (SELECT id FROM tarefas WHERE turma_id = ?)`,
+          WHERE e.aluno_id = ?
+            AND e.tarefa_id IN (SELECT tarefa_id FROM tarefas_turmas WHERE turma_id = ?)`,
         usuario.id, turmaId,
       )
     : [];
 
   const visiveis = (lista) => (ehAluno ? lista.filter((x) => x.publicada !== 0) : lista);
 
+  const turmasPorAula = {};
+  for (const aula of aulas) turmasPorAula[aula.id] = await turmasDaAula(bd, aula.id);
+
   return {
     aulas: visiveis(aulas).map((aula) => ({
       ...aula,
+      turmas: turmasPorAula[aula.id] ?? [],
       materiais: materiais.filter((m) => m.aula_id === aula.id),
       tarefas: visiveis(tarefas)
         .filter((t) => t.aula_id === aula.id)
@@ -1405,7 +1473,8 @@ export function criarRotas(bd, opcoes = {}) {
 
     ['POST', /^\/api\/aulas$/, async (ctx) => {
       const equipe = exigirEquipe(ctx.exigirLogin());
-      const turma = await turmaDoPedido(bd, ctx.corpo.turma_id, equipe);
+      const turmas = await turmasDoPedido(bd, ctx.corpo, equipe);
+      const turma = turmas[0];
       const agora = new Date().toISOString();
       const { ultimoId } = await bd.run(
         `INSERT INTO aulas(turma_id, titulo, descricao, data_aula, ordem, publicada, criada_por, criada_em, atualizada_em)
@@ -1419,6 +1488,8 @@ export function criarRotas(bd, opcoes = {}) {
         equipe.id, agora, agora,
       );
 
+      await vincular(bd, 'aulas_turmas', 'aula_id', ultimoId, turmas);
+
       // Anexar na mesma ação evita o segundo passo de "agora adicione o material".
       if (ctx.corpo.arquivo) {
         const arquivo = await guardarArquivo(bd, opcoes.arquivos, equipe, ctx.corpo.arquivo);
@@ -1431,14 +1502,25 @@ export function criarRotas(bd, opcoes = {}) {
         );
       }
 
-      return { status: 201, corpo: { aula: await bd.get('SELECT * FROM aulas WHERE id = ?', ultimoId) } };
+      return {
+        status: 201,
+        corpo: {
+          aula: await bd.get('SELECT * FROM aulas WHERE id = ?', ultimoId),
+          turmas: await turmasDaAula(bd, ultimoId),
+        },
+      };
     }],
 
     ['PUT', /^\/api\/aulas\/(\d+)$/, async (ctx) => {
       const equipe = exigirEquipe(ctx.exigirLogin());
       const aula = await bd.get('SELECT * FROM aulas WHERE id = ?', Number(ctx.parametros[0]));
       if (!aula) throw erro(404, 'Aula não encontrada.');
-      await turmaDoPedido(bd, aula.turma_id, equipe);
+      if (!(await alcanca(bd, 'aulas_turmas', 'aula_id', aula.id, equipe))) {
+        throw erro(404, 'Aula não encontrada.');
+      }
+      if (ctx.corpo.turma_ids || ctx.corpo.turma_id) {
+        await vincular(bd, 'aulas_turmas', 'aula_id', aula.id, await turmasDoPedido(bd, ctx.corpo, equipe));
+      }
       await bd.run(
         `UPDATE aulas SET titulo = ?, descricao = ?, data_aula = ?, ordem = ?, publicada = ?, atualizada_em = ?
           WHERE id = ?`,
@@ -1449,14 +1531,20 @@ export function criarRotas(bd, opcoes = {}) {
         ctx.corpo.publicada === false ? 0 : 1,
         new Date().toISOString(), aula.id,
       );
-      return { corpo: { aula: await bd.get('SELECT * FROM aulas WHERE id = ?', aula.id) } };
+      return {
+        corpo: {
+          aula: await bd.get('SELECT * FROM aulas WHERE id = ?', aula.id),
+          turmas: await turmasDaAula(bd, aula.id),
+        },
+      };
     }],
 
     ['DELETE', /^\/api\/aulas\/(\d+)$/, async (ctx) => {
       const equipe = exigirEquipe(ctx.exigirLogin());
       const aula = await bd.get('SELECT * FROM aulas WHERE id = ?', Number(ctx.parametros[0]));
-      if (!aula) throw erro(404, 'Aula não encontrada.');
-      await turmaDoPedido(bd, aula.turma_id, equipe);
+      if (!aula || !(await alcanca(bd, 'aulas_turmas', 'aula_id', aula.id, equipe))) {
+        throw erro(404, 'Aula não encontrada.');
+      }
       await bd.run('DELETE FROM aulas WHERE id = ?', aula.id);
       return { corpo: { ok: true } };
     }],
@@ -1497,7 +1585,14 @@ export function criarRotas(bd, opcoes = {}) {
 
     ['POST', /^\/api\/tarefas$/, async (ctx) => {
       const equipe = exigirEquipe(ctx.exigirLogin());
-      const turma = await turmaDoPedido(bd, ctx.corpo.turma_id, equipe);
+      // A tarefa herda as turmas da aula quando nasce dentro dela.
+      const daAula = ctx.corpo.aula_id
+        ? await turmasDaAula(bd, Number(ctx.corpo.aula_id))
+        : [];
+      const turmas = daAula.length && !ctx.corpo.turma_ids
+        ? daAula
+        : await turmasDoPedido(bd, ctx.corpo, equipe);
+      const turma = turmas[0];
       const agora = new Date().toISOString();
       const horas = ctx.corpo.horas_sugeridas === '' || ctx.corpo.horas_sugeridas === undefined || ctx.corpo.horas_sugeridas === null
         ? null : Number(ctx.corpo.horas_sugeridas);
@@ -1517,14 +1612,22 @@ export function criarRotas(bd, opcoes = {}) {
         ctx.corpo.publicada === false ? 0 : 1,
         equipe.id, agora, agora,
       );
-      return { status: 201, corpo: { tarefa: await bd.get('SELECT * FROM tarefas WHERE id = ?', ultimoId) } };
+      await vincular(bd, 'tarefas_turmas', 'tarefa_id', ultimoId, turmas);
+      return {
+        status: 201,
+        corpo: {
+          tarefa: await bd.get('SELECT * FROM tarefas WHERE id = ?', ultimoId),
+          turmas: await turmasDaTarefa(bd, ultimoId),
+        },
+      };
     }],
 
     ['DELETE', /^\/api\/tarefas\/(\d+)$/, async (ctx) => {
       const equipe = exigirEquipe(ctx.exigirLogin());
       const tarefa = await bd.get('SELECT * FROM tarefas WHERE id = ?', Number(ctx.parametros[0]));
-      if (!tarefa) throw erro(404, 'Tarefa não encontrada.');
-      await turmaDoPedido(bd, tarefa.turma_id, equipe);
+      if (!tarefa || !(await alcanca(bd, 'tarefas_turmas', 'tarefa_id', tarefa.id, equipe))) {
+        throw erro(404, 'Tarefa não encontrada.');
+      }
       await bd.run('DELETE FROM tarefas WHERE id = ?', tarefa.id);
       return { corpo: { ok: true } };
     }],
@@ -1533,9 +1636,12 @@ export function criarRotas(bd, opcoes = {}) {
     ['PUT', /^\/api\/tarefas\/(\d+)\/entrega$/, async (ctx) => {
       const usuario = ctx.exigirLogin();
       if (usuario.papel !== 'aluno') throw erro(403, 'Só aluno entrega tarefa.');
-      const tarefa = await bd.get('SELECT * FROM tarefas WHERE id = ?', Number(ctx.parametros[0]));
-      if (!tarefa || tarefa.turma_id !== usuario.turma_id) throw erro(404, 'Tarefa não encontrada.');
-      if (!tarefa.publicada) throw erro(404, 'Tarefa não encontrada.');
+      const tarefa = await bd.get(
+        `SELECT t.* FROM tarefas t JOIN tarefas_turmas tt ON tt.tarefa_id = t.id
+          WHERE t.id = ? AND tt.turma_id = ?`,
+        Number(ctx.parametros[0]), usuario.turma_id,
+      );
+      if (!tarefa || !tarefa.publicada) throw erro(404, 'Tarefa não encontrada.');
 
       const atual = await bd.get(
         'SELECT * FROM entregas WHERE tarefa_id = ? AND aluno_id = ?', tarefa.id, usuario.id,
@@ -1576,24 +1682,32 @@ export function criarRotas(bd, opcoes = {}) {
     ['GET', /^\/api\/tarefas\/(\d+)\/entregas$/, async (ctx) => {
       const equipe = exigirEquipe(ctx.exigirLogin());
       const tarefa = await bd.get('SELECT * FROM tarefas WHERE id = ?', Number(ctx.parametros[0]));
-      if (!tarefa) throw erro(404, 'Tarefa não encontrada.');
-      await turmaDoPedido(bd, tarefa.turma_id, equipe);
+      if (!tarefa || !(await alcanca(bd, 'tarefas_turmas', 'tarefa_id', tarefa.id, equipe))) {
+        throw erro(404, 'Tarefa não encontrada.');
+      }
       const entregas = await bd.all(
-        `SELECT e.*, u.nome AS aluno_nome, u.matricula, arq.nome AS arquivo_nome, arq.tipo AS arquivo_tipo
+        `SELECT e.*, u.nome AS aluno_nome, u.matricula, t.nome AS turma_nome,
+                arq.nome AS arquivo_nome, arq.tipo AS arquivo_tipo
            FROM entregas e
            JOIN usuarios u ON u.id = e.aluno_id
+           LEFT JOIN turmas t ON t.id = u.turma_id
            LEFT JOIN arquivos arq ON arq.id = e.arquivo_id
           WHERE e.tarefa_id = ? ORDER BY u.nome COLLATE NOCASE`,
         tarefa.id,
       );
+      // Quem ainda não entregou, em todas as turmas que a tarefa alcança.
       const semEntregar = await bd.all(
-        `SELECT u.id, u.nome FROM usuarios u
-          WHERE u.papel = 'aluno' AND u.turma_id = ?
+        `SELECT u.id, u.nome, t.nome AS turma_nome FROM usuarios u
+           JOIN turmas t ON t.id = u.turma_id
+          WHERE u.papel = 'aluno'
+            AND u.turma_id IN (SELECT turma_id FROM tarefas_turmas WHERE tarefa_id = ?)
             AND u.id NOT IN (SELECT aluno_id FROM entregas WHERE tarefa_id = ?)
           ORDER BY u.nome COLLATE NOCASE`,
-        tarefa.turma_id, tarefa.id,
+        tarefa.id, tarefa.id,
       );
-      return { corpo: { tarefa, entregas, sem_entregar: semEntregar } };
+      return {
+        corpo: { tarefa, turmas: await turmasDaTarefa(bd, tarefa.id), entregas, sem_entregar: semEntregar },
+      };
     }],
 
     // Aceitar a entrega cria (ou atualiza) a hora complementar já validada.
@@ -1609,8 +1723,9 @@ export function criarRotas(bd, opcoes = {}) {
           WHERE e.id = ?`,
         Number(ctx.parametros[0]),
       );
-      if (!entrega) throw erro(404, 'Entrega não encontrada.');
-      await turmaDoPedido(bd, entrega.turma_id, equipe);
+      if (!entrega || !(await alcanca(bd, 'tarefas_turmas', 'tarefa_id', entrega.tarefa_id, equipe))) {
+        throw erro(404, 'Entrega não encontrada.');
+      }
 
       const status = ctx.corpo.status === 'devolvida' ? 'devolvida' : 'aceita';
       const observacao = texto(ctx.corpo.observacao, 'a observação', { obrigatorio: false, max: 2000 }) || null;

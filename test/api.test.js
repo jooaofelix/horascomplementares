@@ -566,7 +566,7 @@ test('a página inicial é servida e caminhos desconhecidos devolvem 404', async
     const anonimo = cliente(base);
     const pagina = await anonimo('/');
     assert.equal(pagina.status, 200);
-    assert.match(pagina.dados, /Horas Complementares/);
+    assert.match(pagina.dados, /Sala de Aula/);
     assert.equal((await anonimo('/nao-existe.html')).status, 404);
   });
 });
@@ -1406,5 +1406,134 @@ test('arquivo de vários MB vai e volta inteiro, fatiado no banco', async () => 
 
     // E continua fechado para quem não está na turma.
     assert.equal((await cliente(base)(`/api/arquivos/${material.dados.material.arquivo_id}`)).status, 401);
+  });
+});
+
+// ---------------------------------------------------------------- aula em várias turmas
+
+test('uma aula publicada para duas turmas aparece nas duas, com o material', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const manha = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: '3A — manhã' } })).dados.turma;
+    const noite = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: '3B — noite' } })).dados.turma;
+    const outra = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: '2A — outra' } })).dados.turma;
+
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', manha.codigo);
+    const bruno = await criarAluno(base, 'Bruno', 'bruno@ex.br', noite.codigo);
+    const carla = await criarAluno(base, 'Carla', 'carla@ex.br', outra.codigo);
+
+    const aula = await admin('/api/aulas', {
+      metodo: 'POST',
+      corpo: {
+        turma_ids: [manha.id, noite.id],
+        titulo: 'Aula 3 — Registro cursivo',
+        data_aula: '2026-04-06',
+        arquivo: arquivoExemplo('slides-aula-3.pdf'),
+      },
+    });
+    assert.equal(aula.status, 201, JSON.stringify(aula.dados));
+    assert.deepEqual(aula.dados.turmas.map((t) => t.nome).sort(), ['3A — manhã', '3B — noite']);
+
+    for (const [quem, turma] of [[ana, manha], [bruno, noite]]) {
+      const mural = await quem(`/api/turmas/${turma.id}/mural`);
+      assert.equal(mural.dados.aulas.length, 1, `${turma.nome} deveria ver a aula`);
+      assert.equal(mural.dados.aulas[0].materiais.length, 1);
+      const arquivoId = mural.dados.aulas[0].materiais[0].arquivo_id;
+      assert.equal((await quem(`/api/arquivos/${arquivoId}`)).status, 200, 'baixa o material');
+    }
+
+    assert.equal((await carla(`/api/turmas/${outra.id}/mural`)).dados.aulas.length, 0, 'turma de fora não vê');
+  });
+});
+
+test('a tarefa da aula compartilhada recebe entregas das duas turmas', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const manha = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: '3A' } })).dados.turma;
+    const noite = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: '3B' } })).dados.turma;
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', manha.codigo);
+    const bruno = await criarAluno(base, 'Bruno', 'bruno@ex.br', noite.codigo);
+    await criarAluno(base, 'Caio', 'caio@ex.br', noite.codigo);
+
+    const aula = (await admin('/api/aulas', {
+      metodo: 'POST', corpo: { turma_ids: [manha.id, noite.id], titulo: 'Aula 3' },
+    })).dados.aula;
+
+    // Sem dizer as turmas: a tarefa herda as da aula.
+    const tarefa = await admin('/api/tarefas', {
+      metodo: 'POST',
+      corpo: { aula_id: aula.id, turma_id: manha.id, titulo: 'Registro da observação', horas_sugeridas: 3 },
+    });
+    assert.equal(tarefa.status, 201);
+    assert.equal(tarefa.dados.turmas.length, 2, 'herdou as duas turmas da aula');
+
+    const id = tarefa.dados.tarefa.id;
+    assert.equal((await ana(`/api/tarefas/${id}/entrega`, { metodo: 'PUT', corpo: { texto: 'Entrega da Ana' } })).status, 200);
+    assert.equal((await bruno(`/api/tarefas/${id}/entrega`, { metodo: 'PUT', corpo: { texto: 'Entrega do Bruno' } })).status, 200);
+
+    const fila = await admin(`/api/tarefas/${id}/entregas`);
+    assert.deepEqual(fila.dados.entregas.map((e) => e.aluno_nome).sort(), ['Ana', 'Bruno']);
+    assert.deepEqual(fila.dados.entregas.map((e) => e.turma_nome).sort(), ['3A', '3B']);
+    assert.deepEqual(fila.dados.sem_entregar.map((a) => a.nome), ['Caio'], 'quem falta, nas duas turmas');
+
+    // Cada aluno vê só a própria entrega no mural da turma dele.
+    const muralAna = await ana(`/api/turmas/${manha.id}/mural`);
+    assert.equal(muralAna.dados.aulas[0].tarefas[0].minha_entrega.texto, 'Entrega da Ana');
+  });
+});
+
+test('professor que alcança uma das turmas avalia a tarefa compartilhada', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const helena = await criarProfessorConvidado(base, admin, 'Profa. Helena', 'helena@exemplo.br');
+    const daHelena = (await helena('/api/turmas', { metodo: 'POST', corpo: { nome: 'Turma da Helena' } })).dados.turma;
+    const doAdmin = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: 'Turma do admin' } })).dados.turma;
+
+    // O admin alcança as duas turmas, então publica para ambas.
+    const aula = (await admin('/api/aulas', {
+      metodo: 'POST', corpo: { turma_ids: [daHelena.id, doAdmin.id], titulo: 'Aula conjunta' },
+    })).dados.aula;
+    const tarefa = (await admin('/api/tarefas', {
+      metodo: 'POST', corpo: { aula_id: aula.id, titulo: 'Trabalho conjunto', horas_sugeridas: 2 },
+    })).dados.tarefa;
+
+    const aluna = await criarAluno(base, 'Ana', 'ana@ex.br', daHelena.codigo);
+    const entrega = (await aluna(`/api/tarefas/${tarefa.id}/entrega`, {
+      metodo: 'PUT', corpo: { texto: 'Feito.' },
+    })).dados.entrega;
+
+    // Helena alcança só a turma dela, e isso basta para avaliar a entrega dessa aluna.
+    const avaliada = await helena(`/api/entregas/${entrega.id}/avaliacao`, {
+      metodo: 'POST', corpo: { status: 'aceita', horas: 2 },
+    });
+    assert.equal(avaliada.status, 200, JSON.stringify(avaliada.dados));
+    assert.equal((await aluna('/api/atividades')).dados.resumo.validado, 2);
+
+    // Um terceiro professor, sem nenhuma das turmas, não alcança nada.
+    const rafael = await criarProfessorConvidado(base, admin, 'Prof. Rafael', 'rafael@exemplo.br');
+    assert.equal((await rafael(`/api/tarefas/${tarefa.id}/entregas`)).status, 404);
+    assert.equal((await rafael(`/api/aulas/${aula.id}`, { metodo: 'DELETE' })).status, 404);
+  });
+});
+
+test('editar a aula troca as turmas que a recebem', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const manha = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: '3A' } })).dados.turma;
+    const noite = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: '3B' } })).dados.turma;
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', manha.codigo);
+    const bruno = await criarAluno(base, 'Bruno', 'bruno@ex.br', noite.codigo);
+
+    const aula = (await admin('/api/aulas', {
+      metodo: 'POST', corpo: { turma_ids: [manha.id], titulo: 'Aula 3' },
+    })).dados.aula;
+    assert.equal((await bruno(`/api/turmas/${noite.id}/mural`)).dados.aulas.length, 0);
+
+    const editada = await admin(`/api/aulas/${aula.id}`, {
+      metodo: 'PUT', corpo: { titulo: 'Aula 3', turma_ids: [manha.id, noite.id] },
+    });
+    assert.equal(editada.dados.turmas.length, 2);
+    assert.equal((await bruno(`/api/turmas/${noite.id}/mural`)).dados.aulas.length, 1, 'agora alcança 3B');
+    assert.equal((await ana(`/api/turmas/${manha.id}/mural`)).dados.aulas.length, 1, 'e continua em 3A');
   });
 });

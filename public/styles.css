@@ -168,6 +168,17 @@ button.mini { min-height: 42px; padding: 8px 16px; font-size: 15px; }
 }
 .codigo-turma button { width: auto; }
 
+/* ---------- escolha de turmas ---------- */
+
+.escolha-turmas { display: grid; gap: 8px; }
+.opcao-turma {
+  display: flex; align-items: center; gap: 10px; font-weight: 500;
+  border: 1.5px solid var(--borda); border-radius: 12px; padding: 12px 14px;
+  min-height: var(--toque); cursor: pointer; background: #fff;
+}
+.opcao-turma:has(input:checked) { border-color: var(--acento); background: var(--acento-fundo); }
+.opcao-turma input { width: 20px; height: 20px; min-height: 20px; flex: 0 0 auto; accent-color: var(--acento); }
+
 /* ---------- abas ---------- */
 
 .abas {

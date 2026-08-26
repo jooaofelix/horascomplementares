@@ -13,7 +13,7 @@
     "banco:criar": "wrangler d1 create horas-complementares",
     "banco:migrar": "wrangler d1 execute horas-complementares --remote --file=src/esquema.sql",
     "deploy": "wrangler deploy",
-    "banco:ver": "wrangler d1 execute horas-complementares --remote --command \"SELECT 'usuarios' AS tabela, COUNT(*) AS registros FROM usuarios UNION ALL SELECT 'cursos' AS tabela, COUNT(*) AS registros FROM cursos UNION ALL SELECT 'categorias' AS tabela, COUNT(*) AS registros FROM categorias UNION ALL SELECT 'regras_categoria' AS tabela, COUNT(*) AS registros FROM regras_categoria UNION ALL SELECT 'coordenacoes' AS tabela, COUNT(*) AS registros FROM coordenacoes UNION ALL SELECT 'turmas' AS tabela, COUNT(*) AS registros FROM turmas UNION ALL SELECT 'atividades' AS tabela, COUNT(*) AS registros FROM atividades UNION ALL SELECT 'aulas' AS tabela, COUNT(*) AS registros FROM aulas UNION ALL SELECT 'materiais' AS tabela, COUNT(*) AS registros FROM materiais UNION ALL SELECT 'tarefas' AS tabela, COUNT(*) AS registros FROM tarefas UNION ALL SELECT 'entregas' AS tabela, COUNT(*) AS registros FROM entregas UNION ALL SELECT 'arquivos' AS tabela, COUNT(*) AS registros FROM arquivos UNION ALL SELECT 'convites' AS tabela, COUNT(*) AS registros FROM convites UNION ALL SELECT 'chaves_api' AS tabela, COUNT(*) AS registros FROM chaves_api UNION ALL SELECT 'sessoes' AS tabela, COUNT(*) AS registros FROM sessoes\"",
+    "banco:ver": "node scripts/ver-banco.mjs",
     "banco:backup": "wrangler d1 export horas-complementares --remote --output=backup-horas.sql"
   },
   "devDependencies": {

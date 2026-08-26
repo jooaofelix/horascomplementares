@@ -279,6 +279,10 @@ Ver quantos registros existem em cada tabela, direto do banco publicado:
 npm run banco:ver
 ```
 
+> O D1 recusa `UNION ALL` com muitos termos (`too many terms in compound SELECT`), por isso a
+> consulta usa subconsultas numa linha só. Vale lembrar disso ao escrever relatórios: o SQLite local
+> aceita coisas que o D1 recusa.
+
 Consultar o que quiser, em SQL:
 
 ```bash

@@ -210,6 +210,12 @@
       <button class="secundario" id="btn-exportar-aluno" style="margin-top:12px">Baixar minha planilha</button>
     </div>
 
+    <div class="cartao oculto" id="cartao-mural-aluno">
+      <h2>Aulas e tarefas</h2>
+      <p class="explicacao">O que o professor publicou na sua turma.</p>
+      <div id="mural-aluno"></div>
+    </div>
+
     <div class="cartao">
       <h2>Seus dados</h2>
       <p class="explicacao">Entrou na turma errada? Digite o código novo aqui.</p>
@@ -236,6 +242,7 @@
     <div class="abas">
       <button class="ativa" data-aba="turma">Alunos</button>
       <button data-aba="registros">Validar <span id="contador-pendentes"></span></button>
+      <button data-aba="aulas">Aulas</button>
       <button data-aba="turmas">Turmas</button>
       <button data-aba="convites" class="oculto" id="aba-botao-convites">Convites</button>
       <button data-aba="integracao">Integração</button>
@@ -268,6 +275,37 @@
         </select>
       </div>
       <div id="lista-prof"></div>
+    </div>
+
+    <div id="aba-aulas" class="oculto">
+      <div class="cartao">
+        <h2>Publicar aula</h2>
+        <p class="explicacao">A aula agrupa o material e as tarefas daquele encontro.</p>
+        <div class="campo">
+          <label for="nova-aula-titulo">Título</label>
+          <input id="nova-aula-titulo" maxlength="160" placeholder="Ex.: Aula 3 — Registro cursivo">
+        </div>
+        <div class="linha">
+          <div class="campo">
+            <label for="nova-aula-data">Data <span class="opcional">(opcional)</span></label>
+            <input id="nova-aula-data" type="date">
+          </div>
+          <div class="campo">
+            <label for="nova-aula-publicada">Visibilidade</label>
+            <select id="nova-aula-publicada">
+              <option value="1">Publicar para a turma</option>
+              <option value="0">Guardar como rascunho</option>
+            </select>
+          </div>
+        </div>
+        <div class="campo">
+          <label for="nova-aula-descricao">Descrição <span class="opcional">(opcional)</span></label>
+          <textarea id="nova-aula-descricao" style="min-height:110px" placeholder="O que foi visto, o que ler antes, o que levar."></textarea>
+        </div>
+        <button id="btn-criar-aula">Publicar aula</button>
+      </div>
+
+      <div id="mural-professor"></div>
     </div>
 
     <div id="aba-turmas" class="oculto">

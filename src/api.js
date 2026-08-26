@@ -452,6 +452,144 @@ async function importarAtividade(bd, chave, turma, item) {
   return { status: 'criada', atividade_id: ultimoId, aluno_criado: aluno.criado };
 }
 
+// ---------- arquivos ----------
+
+const TIPOS_ACEITOS = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'text/plain': 'txt',
+  'text/markdown': 'md',
+};
+
+function bytesDeBase64(base64) {
+  const limpo = String(base64 || '').replace(/^data:[^;]+;base64,/, '').replace(/\s/g, '');
+  if (!limpo) throw erro(400, 'Arquivo vazio.');
+  const binario = atob(limpo);
+  const bytes = new Uint8Array(binario.length);
+  for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+  return bytes;
+}
+
+async function guardarArquivo(bd, armazenamento, usuario, dados) {
+  if (!armazenamento) throw erro(503, 'Armazenamento de arquivos não configurado.');
+  const nome = texto(dados.nome, 'o nome do arquivo', { max: 200 });
+  const tipo = texto(dados.tipo, 'o tipo do arquivo', { max: 100 });
+  if (!TIPOS_ACEITOS[tipo]) {
+    throw erro(400, `Formato não aceito. Envie PDF, JPG, PNG ou texto (recebido: ${tipo}).`);
+  }
+
+  const bytes = bytesDeBase64(dados.conteudo);
+  if (bytes.length > armazenamento.limite) {
+    const mb = (armazenamento.limite / (1024 * 1024)).toFixed(1).replace('.', ',');
+    throw erro(413, `Arquivo grande demais. O limite aqui é de ${mb} MB.`);
+  }
+
+  // O hash identifica o conteúdo exato que foi enviado: se o arquivo mudar, ele
+  // muda junto. É também a base da verificação de autenticidade mais adiante.
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const hash = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+
+  const chave = `${Date.now().toString(36)}-${Array.from(crypto.getRandomValues(new Uint8Array(8)),
+    (b) => b.toString(16).padStart(2, '0')).join('')}.${TIPOS_ACEITOS[tipo]}`;
+  await armazenamento.guardar(chave, bytes, tipo);
+
+  const { ultimoId } = await bd.run(
+    `INSERT INTO arquivos(nome, tipo, tamanho, hash_sha256, chave, destino, enviado_por, criado_em)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+    nome, tipo, bytes.length, hash, chave, armazenamento.nome, usuario.id, new Date().toISOString(),
+  );
+  return bd.get('SELECT id, nome, tipo, tamanho, hash_sha256, chave FROM arquivos WHERE id = ?', ultimoId);
+}
+
+// Quem pode baixar: a equipe que alcança a turma do material, o aluno da turma,
+// e o autor da própria entrega.
+async function arquivoPermitido(bd, arquivoId, usuario) {
+  const arquivo = await bd.get('SELECT * FROM arquivos WHERE id = ?', arquivoId);
+  if (!arquivo) return null;
+  if (arquivo.enviado_por === usuario.id) return arquivo;
+
+  const material = await bd.get('SELECT turma_id FROM materiais WHERE arquivo_id = ?', arquivoId);
+  const entrega = await bd.get(
+    `SELECT e.aluno_id, t.turma_id FROM entregas e JOIN tarefas t ON t.id = e.tarefa_id
+      WHERE e.arquivo_id = ?`,
+    arquivoId,
+  );
+  const turmaId = material?.turma_id ?? entrega?.turma_id;
+  if (!turmaId) return null;
+
+  if (usuario.papel === 'aluno') {
+    if (entrega && entrega.aluno_id !== usuario.id) return null; // entrega de colega, não
+    return usuario.turma_id === turmaId ? arquivo : null;
+  }
+  return (await turmaVisivel(bd, turmaId, usuario)) ? arquivo : null;
+}
+
+// ---------- mural da turma ----------
+
+async function muralDaTurma(bd, turmaId, usuario) {
+  const aulas = await bd.all(
+    `SELECT id, titulo, descricao, data_aula, ordem, publicada
+       FROM aulas WHERE turma_id = ? ORDER BY COALESCE(data_aula, '9999'), ordem, id`,
+    turmaId,
+  );
+  const materiais = await bd.all(
+    `SELECT m.id, m.aula_id, m.tipo, m.titulo, m.descricao, m.url, m.arquivo_id,
+            a.nome AS arquivo_nome, a.tipo AS arquivo_tipo, a.tamanho AS arquivo_tamanho
+       FROM materiais m LEFT JOIN arquivos a ON a.id = m.arquivo_id
+      WHERE m.turma_id = ? ORDER BY m.id`,
+    turmaId,
+  );
+  const tarefas = await bd.all(
+    `SELECT t.id, t.aula_id, t.titulo, t.enunciado, t.prazo, t.horas_sugeridas, t.publicada,
+            c.nome AS categoria_nome,
+            (SELECT COUNT(*) FROM entregas e WHERE e.tarefa_id = t.id) AS entregas,
+            (SELECT COUNT(*) FROM entregas e WHERE e.tarefa_id = t.id AND e.status = 'enviada') AS a_avaliar
+       FROM tarefas t LEFT JOIN categorias c ON c.id = t.categoria_id
+      WHERE t.turma_id = ? ORDER BY COALESCE(t.prazo, '9999'), t.id`,
+    turmaId,
+  );
+
+  const ehAluno = usuario.papel === 'aluno';
+  const minhasEntregas = ehAluno
+    ? await bd.all(
+        `SELECT e.*, a.nome AS arquivo_nome FROM entregas e
+           LEFT JOIN arquivos a ON a.id = e.arquivo_id
+          WHERE e.aluno_id = ? AND e.tarefa_id IN (SELECT id FROM tarefas WHERE turma_id = ?)`,
+        usuario.id, turmaId,
+      )
+    : [];
+
+  const visiveis = (lista) => (ehAluno ? lista.filter((x) => x.publicada !== 0) : lista);
+
+  return {
+    aulas: visiveis(aulas).map((aula) => ({
+      ...aula,
+      materiais: materiais.filter((m) => m.aula_id === aula.id),
+      tarefas: visiveis(tarefas)
+        .filter((t) => t.aula_id === aula.id)
+        .map((t) => ({ ...t, minha_entrega: minhasEntregas.find((e) => e.tarefa_id === t.id) ?? null })),
+    })),
+    avulsos: {
+      materiais: materiais.filter((m) => !m.aula_id),
+      tarefas: visiveis(tarefas)
+        .filter((t) => !t.aula_id)
+        .map((t) => ({ ...t, minha_entrega: minhasEntregas.find((e) => e.tarefa_id === t.id) ?? null })),
+    },
+  };
+}
+
+// A turma que o pedido diz respeito precisa estar ao alcance de quem pede.
+async function turmaDoPedido(bd, id, usuario) {
+  if (usuario.papel === 'aluno') {
+    if (Number(id) !== usuario.turma_id) throw erro(403, 'Essa turma não é a sua.');
+    return bd.get('SELECT * FROM turmas WHERE id = ?', Number(id));
+  }
+  const turma = await turmaVisivel(bd, Number(id), usuario);
+  if (!turma) throw erro(404, 'Turma não encontrada.');
+  return turma;
+}
+
 // ---------- rotas ----------
 
 export function criarRotas(bd, opcoes = {}) {
@@ -1092,6 +1230,297 @@ export function criarRotas(bd, opcoes = {}) {
           erros: conta('erro'),
           alunos_criados: resultados.filter((r) => r.aluno_criado).length,
           resultados,
+        },
+      };
+    }],
+
+    // ---------- aulas, materiais, tarefas e entregas ----------
+
+    ['POST', /^\/api\/arquivos$/, async (ctx) => {
+      const usuario = ctx.exigirLogin();
+      const arquivo = await guardarArquivo(bd, opcoes.arquivos, usuario, ctx.corpo);
+      return { status: 201, corpo: { arquivo } };
+    }],
+
+    ['GET', /^\/api\/arquivos\/(\d+)$/, async (ctx) => {
+      const usuario = ctx.exigirLogin();
+      const arquivo = await arquivoPermitido(bd, Number(ctx.parametros[0]), usuario);
+      if (!arquivo) throw erro(404, 'Arquivo não encontrado.');
+      const bytes = await opcoes.arquivos?.ler(arquivo.chave);
+      if (!bytes) throw erro(404, 'Conteúdo do arquivo não encontrado.');
+      return {
+        binario: bytes,
+        cabecalhos: {
+          'Content-Type': arquivo.tipo,
+          'Content-Disposition': `inline; filename="${arquivo.nome.replace(/"/g, '')}"`,
+          'Cache-Control': 'private, max-age=600',
+        },
+      };
+    }],
+
+    ['GET', /^\/api\/turmas\/(\d+)\/mural$/, async (ctx) => {
+      const usuario = ctx.exigirLogin();
+      const turma = await turmaDoPedido(bd, ctx.parametros[0], usuario);
+      return {
+        corpo: {
+          turma: { id: turma.id, nome: turma.nome, periodo: turma.periodo },
+          ...(await muralDaTurma(bd, turma.id, usuario)),
+        },
+      };
+    }],
+
+    ['POST', /^\/api\/aulas$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const turma = await turmaDoPedido(bd, ctx.corpo.turma_id, equipe);
+      const agora = new Date().toISOString();
+      const { ultimoId } = await bd.run(
+        `INSERT INTO aulas(turma_id, titulo, descricao, data_aula, ordem, publicada, criada_por, criada_em, atualizada_em)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        turma.id,
+        texto(ctx.corpo.titulo, 'o título da aula', { max: 160 }),
+        texto(ctx.corpo.descricao, 'a descrição', { obrigatorio: false, max: 4000 }) || null,
+        data(ctx.corpo.data_aula, 'a data da aula', { obrigatorio: false }),
+        Number(ctx.corpo.ordem) || 0,
+        ctx.corpo.publicada === false ? 0 : 1,
+        equipe.id, agora, agora,
+      );
+      return { status: 201, corpo: { aula: await bd.get('SELECT * FROM aulas WHERE id = ?', ultimoId) } };
+    }],
+
+    ['PUT', /^\/api\/aulas\/(\d+)$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const aula = await bd.get('SELECT * FROM aulas WHERE id = ?', Number(ctx.parametros[0]));
+      if (!aula) throw erro(404, 'Aula não encontrada.');
+      await turmaDoPedido(bd, aula.turma_id, equipe);
+      await bd.run(
+        `UPDATE aulas SET titulo = ?, descricao = ?, data_aula = ?, ordem = ?, publicada = ?, atualizada_em = ?
+          WHERE id = ?`,
+        texto(ctx.corpo.titulo, 'o título da aula', { max: 160 }),
+        texto(ctx.corpo.descricao, 'a descrição', { obrigatorio: false, max: 4000 }) || null,
+        data(ctx.corpo.data_aula, 'a data da aula', { obrigatorio: false }),
+        Number(ctx.corpo.ordem) || 0,
+        ctx.corpo.publicada === false ? 0 : 1,
+        new Date().toISOString(), aula.id,
+      );
+      return { corpo: { aula: await bd.get('SELECT * FROM aulas WHERE id = ?', aula.id) } };
+    }],
+
+    ['DELETE', /^\/api\/aulas\/(\d+)$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const aula = await bd.get('SELECT * FROM aulas WHERE id = ?', Number(ctx.parametros[0]));
+      if (!aula) throw erro(404, 'Aula não encontrada.');
+      await turmaDoPedido(bd, aula.turma_id, equipe);
+      await bd.run('DELETE FROM aulas WHERE id = ?', aula.id);
+      return { corpo: { ok: true } };
+    }],
+
+    ['POST', /^\/api\/materiais$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const turma = await turmaDoPedido(bd, ctx.corpo.turma_id, equipe);
+      const tipo = ['arquivo', 'link', 'texto'].includes(ctx.corpo.tipo) ? ctx.corpo.tipo : 'arquivo';
+
+      let arquivoId = null;
+      if (tipo === 'arquivo') {
+        if (!ctx.corpo.arquivo) throw erro(400, 'Envie o arquivo do material.');
+        arquivoId = (await guardarArquivo(bd, opcoes.arquivos, equipe, ctx.corpo.arquivo)).id;
+      }
+      const url = tipo === 'link' ? texto(ctx.corpo.url, 'o endereço do link', { max: 500 }) : null;
+
+      const { ultimoId } = await bd.run(
+        `INSERT INTO materiais(turma_id, aula_id, tipo, titulo, descricao, url, arquivo_id, criado_por, criado_em)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        turma.id,
+        ctx.corpo.aula_id ? Number(ctx.corpo.aula_id) : null,
+        tipo,
+        texto(ctx.corpo.titulo, 'o título do material', { max: 160 }),
+        texto(ctx.corpo.descricao, 'a descrição', { obrigatorio: false, max: 2000 }) || null,
+        url, arquivoId, equipe.id, new Date().toISOString(),
+      );
+      return { status: 201, corpo: { material: await bd.get('SELECT * FROM materiais WHERE id = ?', ultimoId) } };
+    }],
+
+    ['DELETE', /^\/api\/materiais\/(\d+)$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const material = await bd.get('SELECT * FROM materiais WHERE id = ?', Number(ctx.parametros[0]));
+      if (!material) throw erro(404, 'Material não encontrado.');
+      await turmaDoPedido(bd, material.turma_id, equipe);
+      await bd.run('DELETE FROM materiais WHERE id = ?', material.id);
+      return { corpo: { ok: true } };
+    }],
+
+    ['POST', /^\/api\/tarefas$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const turma = await turmaDoPedido(bd, ctx.corpo.turma_id, equipe);
+      const agora = new Date().toISOString();
+      const horas = ctx.corpo.horas_sugeridas === '' || ctx.corpo.horas_sugeridas === undefined || ctx.corpo.horas_sugeridas === null
+        ? null : Number(ctx.corpo.horas_sugeridas);
+      if (horas !== null && (!Number.isFinite(horas) || horas <= 0)) throw erro(400, 'Horas sugeridas inválidas.');
+
+      const { ultimoId } = await bd.run(
+        `INSERT INTO tarefas(turma_id, aula_id, titulo, enunciado, prazo, horas_sugeridas, categoria_id,
+                             publicada, criada_por, criada_em, atualizada_em)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        turma.id,
+        ctx.corpo.aula_id ? Number(ctx.corpo.aula_id) : null,
+        texto(ctx.corpo.titulo, 'o título da tarefa', { max: 160 }),
+        texto(ctx.corpo.enunciado, 'o enunciado', { obrigatorio: false, max: 8000 }) || null,
+        data(ctx.corpo.prazo, 'o prazo', { obrigatorio: false }),
+        horas,
+        ctx.corpo.categoria_id ? Number(ctx.corpo.categoria_id) : null,
+        ctx.corpo.publicada === false ? 0 : 1,
+        equipe.id, agora, agora,
+      );
+      return { status: 201, corpo: { tarefa: await bd.get('SELECT * FROM tarefas WHERE id = ?', ultimoId) } };
+    }],
+
+    ['DELETE', /^\/api\/tarefas\/(\d+)$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const tarefa = await bd.get('SELECT * FROM tarefas WHERE id = ?', Number(ctx.parametros[0]));
+      if (!tarefa) throw erro(404, 'Tarefa não encontrada.');
+      await turmaDoPedido(bd, tarefa.turma_id, equipe);
+      await bd.run('DELETE FROM tarefas WHERE id = ?', tarefa.id);
+      return { corpo: { ok: true } };
+    }],
+
+    // O aluno envia (ou refaz) a própria entrega.
+    ['PUT', /^\/api\/tarefas\/(\d+)\/entrega$/, async (ctx) => {
+      const usuario = ctx.exigirLogin();
+      if (usuario.papel !== 'aluno') throw erro(403, 'Só aluno entrega tarefa.');
+      const tarefa = await bd.get('SELECT * FROM tarefas WHERE id = ?', Number(ctx.parametros[0]));
+      if (!tarefa || tarefa.turma_id !== usuario.turma_id) throw erro(404, 'Tarefa não encontrada.');
+      if (!tarefa.publicada) throw erro(404, 'Tarefa não encontrada.');
+
+      const atual = await bd.get(
+        'SELECT * FROM entregas WHERE tarefa_id = ? AND aluno_id = ?', tarefa.id, usuario.id,
+      );
+      if (atual && atual.status === 'aceita') {
+        throw erro(409, 'Sua entrega já foi aceita. Fale com o professor se precisar mudar algo.');
+      }
+
+      const conteudo = typeof ctx.corpo.texto === 'string' ? ctx.corpo.texto : '';
+      if (conteudo.length > LIMITE_TEXTO) throw erro(400, 'Texto grande demais.');
+      const arquivoId = ctx.corpo.arquivo
+        ? (await guardarArquivo(bd, opcoes.arquivos, usuario, ctx.corpo.arquivo)).id
+        : (atual?.arquivo_id ?? null);
+      if (!conteudo.trim() && !arquivoId) throw erro(400, 'Escreva a resposta ou anexe um arquivo.');
+
+      const agora = new Date().toISOString();
+      if (atual) {
+        await bd.run(
+          `UPDATE entregas SET texto = ?, arquivo_id = ?, status = 'enviada', atualizada_em = ? WHERE id = ?`,
+          conteudo, arquivoId, agora, atual.id,
+        );
+      } else {
+        await bd.run(
+          `INSERT INTO entregas(tarefa_id, aluno_id, texto, arquivo_id, enviada_em, atualizada_em)
+           VALUES(?, ?, ?, ?, ?, ?)`,
+          tarefa.id, usuario.id, conteudo, arquivoId, agora, agora,
+        );
+      }
+      return {
+        corpo: {
+          entrega: await bd.get(
+            'SELECT * FROM entregas WHERE tarefa_id = ? AND aluno_id = ?', tarefa.id, usuario.id,
+          ),
+        },
+      };
+    }],
+
+    ['GET', /^\/api\/tarefas\/(\d+)\/entregas$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const tarefa = await bd.get('SELECT * FROM tarefas WHERE id = ?', Number(ctx.parametros[0]));
+      if (!tarefa) throw erro(404, 'Tarefa não encontrada.');
+      await turmaDoPedido(bd, tarefa.turma_id, equipe);
+      const entregas = await bd.all(
+        `SELECT e.*, u.nome AS aluno_nome, u.matricula, arq.nome AS arquivo_nome, arq.tipo AS arquivo_tipo
+           FROM entregas e
+           JOIN usuarios u ON u.id = e.aluno_id
+           LEFT JOIN arquivos arq ON arq.id = e.arquivo_id
+          WHERE e.tarefa_id = ? ORDER BY u.nome COLLATE NOCASE`,
+        tarefa.id,
+      );
+      const semEntregar = await bd.all(
+        `SELECT u.id, u.nome FROM usuarios u
+          WHERE u.papel = 'aluno' AND u.turma_id = ?
+            AND u.id NOT IN (SELECT aluno_id FROM entregas WHERE tarefa_id = ?)
+          ORDER BY u.nome COLLATE NOCASE`,
+        tarefa.turma_id, tarefa.id,
+      );
+      return { corpo: { tarefa, entregas, sem_entregar: semEntregar } };
+    }],
+
+    // Aceitar a entrega cria (ou atualiza) a hora complementar já validada.
+    ['POST', /^\/api\/entregas\/(\d+)\/avaliacao$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const entrega = await bd.get(
+        `SELECT e.*, t.turma_id, t.titulo AS tarefa_titulo, t.horas_sugeridas, t.categoria_id,
+                cat.nome AS categoria_nome, arq.nome AS arquivo_nome
+           FROM entregas e
+           JOIN tarefas t ON t.id = e.tarefa_id
+           LEFT JOIN categorias cat ON cat.id = t.categoria_id
+           LEFT JOIN arquivos arq ON arq.id = e.arquivo_id
+          WHERE e.id = ?`,
+        Number(ctx.parametros[0]),
+      );
+      if (!entrega) throw erro(404, 'Entrega não encontrada.');
+      await turmaDoPedido(bd, entrega.turma_id, equipe);
+
+      const status = ctx.corpo.status === 'devolvida' ? 'devolvida' : 'aceita';
+      const observacao = texto(ctx.corpo.observacao, 'a observação', { obrigatorio: false, max: 2000 }) || null;
+      if (status === 'devolvida' && !observacao) {
+        throw erro(400, 'Diga ao aluno o que precisa ser corrigido.');
+      }
+
+      const agora = new Date().toISOString();
+      let atividadeId = entrega.atividade_id;
+      let horas = null;
+
+      if (status === 'aceita') {
+        horas = Number(ctx.corpo.horas ?? entrega.horas_sugeridas ?? 0);
+        if (!Number.isFinite(horas) || horas < 0) throw erro(400, 'Horas inválidas.');
+
+        if (horas > 0) {
+          const categoria = entrega.categoria_id
+            ? await bd.get('SELECT id, nome FROM categorias WHERE id = ?', entrega.categoria_id)
+            : await bd.get("SELECT id, nome FROM categorias WHERE nome = 'Outro'");
+          const campos = [
+            entrega.tarefa_titulo, categoria?.nome ?? 'Outro', categoria?.id ?? null,
+            horas, entrega.texto || '', entrega.arquivo_nome ?? null, observacao, equipe.id, agora,
+          ];
+          if (atividadeId) {
+            await bd.run(
+              `UPDATE atividades
+                  SET titulo = ?, categoria = ?, categoria_id = ?, horas = ?, texto = ?, arquivo_nome = ?,
+                      observacao = ?, validado = 1, validado_por = ?, validado_em = ?, atualizado_em = ?
+                WHERE id = ?`,
+              ...campos, agora, atividadeId,
+            );
+          } else {
+            const criada = await bd.run(
+              `INSERT INTO atividades
+                 (usuario_id, titulo, categoria, categoria_id, data_atividade, horas, texto, arquivo_nome,
+                  observacao, validado, validado_por, validado_em, origem, criado_em, atualizado_em)
+               VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 'Tarefa da turma', ?, ?)`,
+              entrega.aluno_id, entrega.tarefa_titulo, categoria?.nome ?? 'Outro', categoria?.id ?? null,
+              agora.slice(0, 10), horas, entrega.texto || '', entrega.arquivo_nome ?? null,
+              observacao, equipe.id, agora, agora, agora,
+            );
+            atividadeId = criada.ultimoId;
+          }
+        }
+      }
+
+      await bd.run(
+        `UPDATE entregas SET status = ?, observacao = ?, horas = ?, atividade_id = ?,
+                             avaliada_por = ?, avaliada_em = ?, atualizada_em = ?
+          WHERE id = ?`,
+        status, observacao, horas, atividadeId, equipe.id, agora, agora, entrega.id,
+      );
+
+      return {
+        corpo: {
+          entrega: await bd.get('SELECT * FROM entregas WHERE id = ?', entrega.id),
+          horas_lancadas: status === 'aceita' ? horas : 0,
         },
       };
     }],

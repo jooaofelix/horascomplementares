@@ -66,6 +66,7 @@ npx wrangler d1 execute horas-complementares --remote --file=migracoes/002-turma
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/003-saas-multiprofessor.sql
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/005-integracao.sql
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/006-cursos-categorias-papeis.sql
+npx wrangler d1 execute horas-complementares --remote --file=migracoes/007-aulas-materiais-entregas.sql
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/004-convites-de-professor.sql
 ```
 
@@ -145,6 +146,40 @@ npx wrangler d1 execute horas-complementares --remote \
 ```
 
 Um professor nunca enxerga as turmas, os alunos nem os convites de outro.
+
+## Aulas, materiais e tarefas
+
+Além do lançamento avulso de horas, o professor tem um mural por turma:
+
+- **Aulas** com título, data e descrição — e rascunho, que o aluno não vê até ser publicado.
+- **Materiais** dentro de cada aula: arquivo (PDF, JPG, PNG ou texto) ou link.
+- **Tarefas** com enunciado, prazo, categoria e quantas horas valem.
+
+O aluno abre a turma no celular, baixa o material e entrega ali mesmo — texto, arquivo, ou os dois.
+O professor vê a fila (`3 a avaliar`), lê a entrega e decide:
+
+- **Devolver**, com o motivo obrigatório — o aluno vê a observação e reenvia.
+- **Aceitar**, informando quantas horas valem — e é aqui que os dois lados do sistema se encontram:
+  a entrega aceita **vira automaticamente uma atividade já validada** no histórico do aluno, com a
+  categoria da tarefa e o texto entregue. Ninguém redigita nada. Reavaliar com outra carga corrige a
+  mesma atividade em vez de criar outra.
+
+### Onde os arquivos ficam
+
+| Onde roda | Destino | Limite por arquivo |
+| --- | --- | --- |
+| Seu computador | `data/arquivos/` | 8 MB |
+| Cloudflare **com** bucket R2 | R2 | 8 MB |
+| Cloudflare **sem** R2 | o próprio D1 | 700 KB |
+
+Funciona sem configurar nada — sem R2, o conteúdo fica no banco. Para liberar arquivos maiores:
+
+```bash
+npx wrangler r2 bucket create horas-arquivos
+```
+
+e descomente o bloco `[[r2_buckets]]` no `wrangler.toml`. Todo arquivo guarda o **hash SHA-256** do
+conteúdo, que é o que permitirá verificar mais adiante se o documento aprovado é exatamente aquele.
 
 ## Como o aluno usa
 

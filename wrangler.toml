@@ -22,3 +22,11 @@ database_name = "horas-complementares"
 # Id do banco criado com `npm run banco:criar`. Não é segredo: o acesso depende
 # da sua conta Cloudflare, não deste número.
 database_id = "1e87d4af-135f-4f36-b5b6-ca1fe5c28ecd"
+
+# Arquivos de aulas e entregas. Sem este bloco o sistema guarda os arquivos no
+# próprio D1, com limite de 700 KB por arquivo. Para liberar 8 MB:
+#   npx wrangler r2 bucket create horas-arquivos
+# e descomente as duas linhas abaixo.
+# [[r2_buckets]]
+# binding = "ARQUIVOS"
+# bucket_name = "horas-arquivos"

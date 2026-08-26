@@ -14,6 +14,7 @@ const estado = {
   alunos: [],
   convites: [],
   chaves: [],
+  mural: null,
   cursos: [],
   usuarios: [],
   turmaFiltro: '',
@@ -424,12 +425,12 @@ async function lerArquivo(arquivo) {
 $$('.abas button').forEach((botao) => {
   botao.onclick = () => {
     $$('.abas button').forEach((b) => b.classList.toggle('ativa', b === botao));
-    for (const aba of ['turma', 'registros', 'turmas', 'convites', 'integracao', 'cursos', 'usuarios', 'ajustes']) {
+    for (const aba of ['turma', 'registros', 'aulas', 'turmas', 'convites', 'integracao', 'cursos', 'usuarios', 'ajustes']) {
       $(`#aba-${aba}`).classList.toggle('oculto', aba !== botao.dataset.aba);
     }
     $('#filtro-turma-cartao').classList.toggle(
       'oculto',
-      !['turma', 'registros'].includes(botao.dataset.aba) || estado.turmas.length < 2,
+      !['turma', 'registros', 'aulas'].includes(botao.dataset.aba) || estado.turmas.length < 2,
     );
   };
 });
@@ -911,6 +912,338 @@ $('#btn-salvar-perfil').onclick = async () => {
   }
 };
 
+// ---------------------------------------------------------------- aulas e tarefas
+
+// Lê o arquivo escolhido e devolve no formato que a API espera.
+function lerParaEnvio(input) {
+  const arquivo = input?.files?.[0];
+  if (!arquivo) return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const leitor = new FileReader();
+    leitor.onerror = () => reject(new Error('Não foi possível ler o arquivo.'));
+    leitor.onload = () => resolve({
+      nome: arquivo.name,
+      tipo: arquivo.type || 'application/octet-stream',
+      conteudo: String(leitor.result).split(',')[1],
+    });
+    leitor.readAsDataURL(arquivo);
+  });
+}
+
+const prazoTexto = (prazo) => (prazo ? `entrega até ${dataBr(prazo)}` : 'sem prazo');
+
+const SELO_ENTREGA = {
+  enviada: '<span class="selo esperando">aguardando avaliação</span>',
+  devolvida: '<span class="selo esperando">devolvida para correção</span>',
+  aceita: '<span class="selo ok">aceita</span>',
+};
+
+function blocoMaterial(m, comRemover) {
+  const link = m.tipo === 'link'
+    ? `<a href="${escapar(m.url)}" target="_blank" rel="noopener">${escapar(m.titulo)}</a>`
+    : m.arquivo_id
+      ? `<a href="/api/arquivos/${m.arquivo_id}" target="_blank" rel="noopener">${escapar(m.titulo)}</a>`
+      : escapar(m.titulo);
+  return `<div class="item" style="margin-bottom:8px">
+    <div class="nome">${link}</div>
+    ${m.descricao ? `<div class="sub">${escapar(m.descricao)}</div>` : ''}
+    ${m.arquivo_nome ? `<div class="sub">${escapar(m.arquivo_nome)} · ${Math.ceil((m.arquivo_tamanho || 0) / 1024)} KB</div>` : ''}
+    ${comRemover ? `<div class="acoes"><button class="perigo mini" data-remover-material="${m.id}">Remover</button></div>` : ''}
+  </div>`;
+}
+
+function blocoTarefaAluno(t) {
+  const entrega = t.minha_entrega;
+  return `<div class="item" style="margin-bottom:10px">
+    <div class="cabecalho">
+      <span class="titulo">${escapar(t.titulo)}</span>
+      ${entrega ? SELO_ENTREGA[entrega.status] : '<span class="selo esperando">a entregar</span>'}
+    </div>
+    <div class="sub">${prazoTexto(t.prazo)}${t.horas_sugeridas ? ' · vale ' + horas(t.horas_sugeridas) : ''}</div>
+    ${t.enunciado ? `<p style="margin:10px 0 0">${escapar(t.enunciado)}</p>` : ''}
+    ${entrega?.observacao ? `<div class="observacao"><strong>Professor:</strong> ${escapar(entrega.observacao)}</div>` : ''}
+    ${entrega?.status === 'aceita'
+      ? `<p class="sub" style="margin-top:10px">Suas ${horas(entrega.horas || 0)} já entraram como horas validadas.</p>`
+      : `<div style="margin-top:12px">
+           <textarea data-entrega-texto="${t.id}" placeholder="Escreva sua resposta aqui">${escapar(entrega?.texto || '')}</textarea>
+           <div class="campo" style="margin-top:10px">
+             <label>Anexo <span class="opcional">(PDF, JPG ou PNG)</span></label>
+             <input type="file" data-entrega-arquivo="${t.id}" accept=".pdf,.jpg,.jpeg,.png,.txt,.md">
+             ${entrega?.arquivo_nome ? `<div class="ajuda">Já enviado: ${escapar(entrega.arquivo_nome)}</div>` : ''}
+           </div>
+           <button data-enviar-entrega="${t.id}">${entrega ? 'Reenviar entrega' : 'Entregar'}</button>
+         </div>`}
+  </div>`;
+}
+
+function desenharMuralAluno() {
+  const mural = estado.mural;
+  const temAlgo = mural && (mural.aulas.length || mural.avulsos.materiais.length || mural.avulsos.tarefas.length);
+  $('#cartao-mural-aluno').classList.toggle('oculto', !temAlgo);
+  if (!temAlgo) return;
+
+  const secao = (titulo, sub, materiais, tarefas, descricao) => `
+    <div class="item" style="margin-bottom:14px">
+      <div class="nome" style="font-size:17px">${escapar(titulo)}</div>
+      ${sub ? `<div class="sub">${escapar(sub)}</div>` : ''}
+      ${descricao ? `<p style="margin:10px 0 0">${escapar(descricao)}</p>` : ''}
+      ${materiais.length ? `<div style="margin-top:12px">${materiais.map((m) => blocoMaterial(m, false)).join('')}</div>` : ''}
+      ${tarefas.length ? `<div style="margin-top:12px">${tarefas.map(blocoTarefaAluno).join('')}</div>` : ''}
+    </div>`;
+
+  $('#mural-aluno').innerHTML = [
+    ...mural.aulas.map((a) => secao(a.titulo, a.data_aula ? dataBr(a.data_aula) : '', a.materiais, a.tarefas, a.descricao)),
+    (mural.avulsos.materiais.length || mural.avulsos.tarefas.length)
+      ? secao('Material e tarefas da turma', '', mural.avulsos.materiais, mural.avulsos.tarefas, null)
+      : '',
+  ].join('');
+}
+
+$('#mural-aluno').addEventListener('click', async (e) => {
+  const id = e.target.dataset.enviarEntrega;
+  if (!id) return;
+  e.target.disabled = true;
+  try {
+    const arquivo = await lerParaEnvio($(`[data-entrega-arquivo="${id}"]`));
+    await api(`/api/tarefas/${id}/entrega`, {
+      metodo: 'PUT',
+      corpo: { texto: $(`[data-entrega-texto="${id}"]`).value, arquivo },
+    });
+    await carregarMuralAluno();
+    avisar('Entrega enviada. O professor vai avaliar.', 'ok');
+  } catch (err) {
+    falhar(err);
+  } finally {
+    e.target.disabled = false;
+  }
+});
+
+async function carregarMuralAluno() {
+  if (!estado.usuario?.turma_id) return;
+  estado.mural = await api(`/api/turmas/${estado.usuario.turma_id}/mural`);
+  desenharMuralAluno();
+}
+
+// ---- lado do professor ----
+
+function blocoTarefaProfessor(t) {
+  return `<div class="item" style="margin-bottom:8px">
+    <div class="cabecalho">
+      <span class="titulo">${escapar(t.titulo)}</span>
+      ${t.a_avaliar > 0 ? `<span class="selo esperando">${t.a_avaliar} a avaliar</span>` : ''}
+      ${t.publicada ? '' : '<span class="selo esperando">rascunho</span>'}
+    </div>
+    <div class="sub">${prazoTexto(t.prazo)} · ${t.entregas} entrega(s)${t.horas_sugeridas ? ' · ' + horas(t.horas_sugeridas) : ''}</div>
+    <div class="acoes" style="margin-top:10px">
+      <button class="secundario mini" data-ver-entregas="${t.id}">Ver entregas</button>
+      <button class="perigo mini" data-remover-tarefa="${t.id}">Excluir</button>
+    </div>
+    <div data-entregas-de="${t.id}"></div>
+  </div>`;
+}
+
+function desenharMuralProfessor() {
+  const mural = estado.mural;
+  if (!mural) {
+    $('#mural-professor').innerHTML = '<div class="cartao"><p class="vazio">Escolha uma turma para ver as aulas.</p></div>';
+    return;
+  }
+  const categorias = estado.categorias.filter((c) => c.ativa)
+    .map((c) => `<option value="${c.id}">${escapar(c.nome)}</option>`).join('');
+
+  const bloco = (titulo, sub, aulaId, materiais, tarefas, descricao, publicada) => `
+    <div class="cartao">
+      <div class="cabecalho">
+        <h2 style="flex:1">${escapar(titulo)}</h2>
+        ${publicada === 0 ? '<span class="selo esperando">rascunho</span>' : ''}
+      </div>
+      ${sub ? `<p class="explicacao" style="margin-bottom:8px">${escapar(sub)}</p>` : ''}
+      ${descricao ? `<p style="margin:0 0 14px">${escapar(descricao)}</p>` : ''}
+
+      ${materiais.length ? materiais.map((m) => blocoMaterial(m, true)).join('') : '<p class="vazio">Sem material ainda.</p>'}
+      ${tarefas.length ? `<div style="margin-top:12px">${tarefas.map(blocoTarefaProfessor).join('')}</div>` : ''}
+
+      <details style="margin-top:14px">
+        <summary style="cursor:pointer;color:var(--acento);font-weight:600">Adicionar material</summary>
+        <div class="campo" style="margin-top:12px">
+          <label>Título</label><input data-mat-titulo="${aulaId}" placeholder="Ex.: Roteiro de observação">
+        </div>
+        <div class="linha">
+          <div class="campo"><label>Arquivo</label>
+            <input type="file" data-mat-arquivo="${aulaId}" accept=".pdf,.jpg,.jpeg,.png,.txt,.md"></div>
+          <div class="campo"><label>ou link</label>
+            <input data-mat-url="${aulaId}" placeholder="https://..."></div>
+        </div>
+        <button class="secundario mini" data-add-material="${aulaId}">Adicionar</button>
+      </details>
+
+      <details style="margin-top:10px">
+        <summary style="cursor:pointer;color:var(--acento);font-weight:600">Criar tarefa</summary>
+        <div class="campo" style="margin-top:12px">
+          <label>Título</label><input data-tar-titulo="${aulaId}" placeholder="Ex.: Registro da observação 3">
+        </div>
+        <div class="campo">
+          <label>Enunciado</label>
+          <textarea data-tar-enunciado="${aulaId}" style="min-height:100px" placeholder="O que o aluno precisa fazer."></textarea>
+        </div>
+        <div class="linha">
+          <div class="campo"><label>Prazo</label><input type="date" data-tar-prazo="${aulaId}"></div>
+          <div class="campo"><label>Vale quantas horas</label>
+            <input type="number" min="0" step="0.5" inputmode="decimal" data-tar-horas="${aulaId}" placeholder="4"></div>
+          <div class="campo"><label>Categoria</label>
+            <select data-tar-categoria="${aulaId}"><option value="">Sem categoria</option>${categorias}</select></div>
+        </div>
+        <button class="secundario mini" data-add-tarefa="${aulaId}">Criar tarefa</button>
+      </details>
+    </div>`;
+
+  $('#mural-professor').innerHTML = [
+    ...mural.aulas.map((a) => bloco(
+      a.titulo, a.data_aula ? dataBr(a.data_aula) : '', a.id, a.materiais, a.tarefas, a.descricao, a.publicada,
+    )),
+    bloco('Material e tarefas da turma', 'Sem vínculo com uma aula específica', '',
+      mural.avulsos.materiais, mural.avulsos.tarefas, null, 1),
+  ].join('');
+}
+
+async function carregarMuralProfessor() {
+  const turmaId = estado.turmaFiltro || estado.turmas[0]?.id;
+  if (!turmaId) {
+    estado.mural = null;
+  } else {
+    estado.mural = await api(`/api/turmas/${turmaId}/mural`);
+    estado.mural.turma_id = turmaId;
+  }
+  desenharMuralProfessor();
+}
+
+$('#btn-criar-aula').onclick = async () => {
+  const turmaId = estado.mural?.turma_id || estado.turmaFiltro || estado.turmas[0]?.id;
+  if (!turmaId) return avisar('Crie uma turma antes de publicar aulas.');
+  try {
+    await api('/api/aulas', {
+      metodo: 'POST',
+      corpo: {
+        turma_id: turmaId,
+        titulo: $('#nova-aula-titulo').value,
+        data_aula: $('#nova-aula-data').value,
+        descricao: $('#nova-aula-descricao').value,
+        publicada: $('#nova-aula-publicada').value === '1',
+      },
+    });
+    $('#nova-aula-titulo').value = '';
+    $('#nova-aula-descricao').value = '';
+    await carregarMuralProfessor();
+    avisar('Aula publicada.', 'ok');
+  } catch (err) {
+    falhar(err);
+  }
+};
+
+$('#mural-professor').addEventListener('click', async (e) => {
+  const d = e.target.dataset;
+  const turmaId = estado.mural?.turma_id;
+  try {
+    if (d.addMaterial !== undefined) {
+      const chave = d.addMaterial;
+      const arquivo = await lerParaEnvio($(`[data-mat-arquivo="${chave}"]`));
+      const url = $(`[data-mat-url="${chave}"]`).value.trim();
+      if (!arquivo && !url) return avisar('Escolha um arquivo ou informe um link.');
+      await api('/api/materiais', {
+        metodo: 'POST',
+        corpo: {
+          turma_id: turmaId,
+          aula_id: chave || null,
+          tipo: arquivo ? 'arquivo' : 'link',
+          titulo: $(`[data-mat-titulo="${chave}"]`).value || arquivo?.nome || url,
+          url: url || null,
+          arquivo,
+        },
+      });
+      await carregarMuralProfessor();
+      avisar('Material adicionado.', 'ok');
+    }
+
+    if (d.addTarefa !== undefined) {
+      const chave = d.addTarefa;
+      await api('/api/tarefas', {
+        metodo: 'POST',
+        corpo: {
+          turma_id: turmaId,
+          aula_id: chave || null,
+          titulo: $(`[data-tar-titulo="${chave}"]`).value,
+          enunciado: $(`[data-tar-enunciado="${chave}"]`).value,
+          prazo: $(`[data-tar-prazo="${chave}"]`).value,
+          horas_sugeridas: $(`[data-tar-horas="${chave}"]`).value,
+          categoria_id: $(`[data-tar-categoria="${chave}"]`).value || null,
+        },
+      });
+      await carregarMuralProfessor();
+      avisar('Tarefa criada.', 'ok');
+    }
+
+    if (d.removerMaterial) {
+      await api(`/api/materiais/${d.removerMaterial}`, { metodo: 'DELETE' });
+      await carregarMuralProfessor();
+    }
+
+    if (d.removerTarefa) {
+      if (!confirm('Excluir a tarefa e as entregas dela?')) return;
+      await api(`/api/tarefas/${d.removerTarefa}`, { metodo: 'DELETE' });
+      await carregarMuralProfessor();
+    }
+
+    if (d.verEntregas) {
+      const { entregas, sem_entregar: semEntregar } = await api(`/api/tarefas/${d.verEntregas}/entregas`);
+      $(`[data-entregas-de="${d.verEntregas}"]`).innerHTML = `
+        <div style="margin-top:12px">
+          ${entregas.length ? entregas.map((en) => `
+            <div class="item" style="margin-bottom:8px">
+              <div class="cabecalho">
+                <span class="titulo">${escapar(en.aluno_nome)}</span>
+                ${SELO_ENTREGA[en.status]}
+              </div>
+              ${en.texto ? `<pre style="margin-top:10px">${escapar(en.texto)}</pre>` : ''}
+              ${en.arquivo_id ? `<div class="sub" style="margin-top:8px">
+                  <a href="/api/arquivos/${en.arquivo_id}" target="_blank" rel="noopener">${escapar(en.arquivo_nome)}</a>
+                </div>` : ''}
+              ${en.status === 'aceita' ? `<div class="sub">${horas(en.horas || 0)} lançadas como horas validadas</div>` : ''}
+              <div class="linha" style="margin-top:10px">
+                <div class="campo"><label>Horas a lançar</label>
+                  <input type="number" min="0" step="0.5" inputmode="decimal" data-av-horas="${en.id}" value="${en.horas ?? ''}"></div>
+                <div class="campo" style="flex:2"><label>Observação</label>
+                  <input data-av-obs="${en.id}" value="${escapar(en.observacao || '')}" placeholder="Obrigatória para devolver"></div>
+              </div>
+              <div class="acoes">
+                <button class="mini" data-aceitar="${en.id}">Aceitar</button>
+                <button class="secundario mini" data-devolver="${en.id}">Devolver</button>
+              </div>
+            </div>`).join('') : '<p class="vazio">Ninguém entregou ainda.</p>'}
+          ${semEntregar.length
+            ? `<p class="sub">Ainda não entregaram: ${semEntregar.map((a) => escapar(a.nome)).join(', ')}</p>`
+            : ''}
+        </div>`;
+    }
+
+    if (d.aceitar || d.devolver) {
+      const id = d.aceitar || d.devolver;
+      await api(`/api/entregas/${id}/avaliacao`, {
+        metodo: 'POST',
+        corpo: {
+          status: d.aceitar ? 'aceita' : 'devolvida',
+          horas: $(`[data-av-horas="${id}"]`).value || undefined,
+          observacao: $(`[data-av-obs="${id}"]`).value,
+        },
+      });
+      await carregarMuralProfessor();
+      await carregarProfessor();
+      avisar(d.aceitar ? 'Entrega aceita e horas lançadas.' : 'Entrega devolvida ao aluno.', 'ok');
+    }
+  } catch (err) {
+    falhar(err);
+  }
+});
+
 // ---------------------------------------------------------------- carga
 
 async function carregarAtividades() {
@@ -948,6 +1281,7 @@ async function carregarProfessor() {
   desenharAlunos();
   desenharListaProfessor();
   desenharTurmas();
+  await carregarMuralProfessor();
 }
 
 async function iniciar() {
@@ -999,6 +1333,7 @@ async function iniciar() {
     limparFormulario();
     abrirFormulario(false);
     await carregarAtividades();
+    await carregarMuralAluno();
   }
 }
 

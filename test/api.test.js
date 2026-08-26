@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bancoLocal } from '../src/sqlite.js';
+import { armazenamentoD1 } from '../src/arquivos.js';
 import { criarServidor } from '../server.js';
 
 async function subirServidor() {
   const bd = bancoLocal(':memory:');
-  const servidor = criarServidor(bd);
+  // Guarda os arquivos no próprio banco em memória: é o mesmo destino que a
+  // produção usa enquanto não houver bucket R2.
+  const servidor = criarServidor(bd, { arquivos: armazenamentoD1(bd) });
   await new Promise((r) => servidor.listen(0, '127.0.0.1', r));
   return {
     base: `http://127.0.0.1:${servidor.address().port}`,
@@ -934,5 +937,226 @@ test('categoria inexistente é recusada no lançamento', async () => {
     const r = await ana('/api/atividades', { metodo: 'POST', corpo: { ...atividadeBase, categoria: 'Futebol' } });
     assert.equal(r.status, 400);
     assert.match(r.dados.erro, /Categoria inválida/);
+  });
+});
+
+// ---------------------------------------------------------------- aulas e entregas
+
+const PDF_MINIMO = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>').toString('base64');
+const arquivoExemplo = (nome = 'roteiro.pdf') => ({ nome, tipo: 'application/pdf', conteudo: PDF_MINIMO });
+
+async function turmaComAluno(base, nomeTurma = 'Manhã') {
+  const admin = await criarProfessor(base);
+  const turma = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: nomeTurma } })).dados.turma;
+  const ana = await criarAluno(base, 'Ana Ribeiro', 'ana@ex.br', turma.codigo, { matricula: '2026001' });
+  return { admin, turma, ana };
+}
+
+test('o professor publica aula com material e o aluno vê e baixa o arquivo', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, turma, ana } = await turmaComAluno(base);
+
+    const aula = (await admin('/api/aulas', {
+      metodo: 'POST',
+      corpo: {
+        turma_id: turma.id,
+        titulo: 'Aula 3 — Registro cursivo',
+        descricao: 'Como registrar sem interpretar.',
+        data_aula: '2026-04-06',
+      },
+    })).dados.aula;
+
+    const material = await admin('/api/materiais', {
+      metodo: 'POST',
+      corpo: {
+        turma_id: turma.id, aula_id: aula.id, tipo: 'arquivo',
+        titulo: 'Roteiro de observação', arquivo: arquivoExemplo(),
+      },
+    });
+    assert.equal(material.status, 201, JSON.stringify(material.dados));
+
+    await admin('/api/materiais', {
+      metodo: 'POST',
+      corpo: {
+        turma_id: turma.id, aula_id: aula.id, tipo: 'link',
+        titulo: 'Vídeo da sessão', url: 'https://exemplo.br/video',
+      },
+    });
+
+    const mural = await ana(`/api/turmas/${turma.id}/mural`);
+    assert.equal(mural.status, 200, JSON.stringify(mural.dados));
+    assert.equal(mural.dados.aulas.length, 1);
+    assert.equal(mural.dados.aulas[0].titulo, 'Aula 3 — Registro cursivo');
+    assert.equal(mural.dados.aulas[0].materiais.length, 2);
+
+    const doArquivo = mural.dados.aulas[0].materiais.find((m) => m.tipo === 'arquivo');
+    assert.equal(doArquivo.arquivo_nome, 'roteiro.pdf');
+    const baixado = await ana(`/api/arquivos/${doArquivo.arquivo_id}`);
+    assert.equal(baixado.status, 200);
+    assert.match(baixado.dados, /^%PDF-1\.4/);
+  });
+});
+
+test('aluno de outra turma não alcança mural nem arquivo', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, turma } = await turmaComAluno(base);
+    const outra = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: 'Noite' } })).dados.turma;
+    const bruno = await criarAluno(base, 'Bruno', 'bruno@ex.br', outra.codigo);
+
+    const aula = (await admin('/api/aulas', {
+      metodo: 'POST', corpo: { turma_id: turma.id, titulo: 'Aula 1' },
+    })).dados.aula;
+    const material = (await admin('/api/materiais', {
+      metodo: 'POST',
+      corpo: { turma_id: turma.id, aula_id: aula.id, titulo: 'Roteiro', arquivo: arquivoExemplo() },
+    })).dados.material;
+
+    assert.equal((await bruno(`/api/turmas/${turma.id}/mural`)).status, 403);
+    assert.equal((await bruno(`/api/arquivos/${material.arquivo_id}`)).status, 404);
+  });
+});
+
+test('formato não aceito e arquivo grande demais são recusados', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, turma } = await turmaComAluno(base);
+
+    const formato = await admin('/api/materiais', {
+      metodo: 'POST',
+      corpo: {
+        turma_id: turma.id, titulo: 'Planilha',
+        arquivo: { nome: 'notas.xlsx', tipo: 'application/vnd.ms-excel', conteudo: 'AAAA' },
+      },
+    });
+    assert.equal(formato.status, 400);
+    assert.match(formato.dados.erro, /Formato não aceito/);
+
+    const grande = await admin('/api/materiais', {
+      metodo: 'POST',
+      corpo: {
+        turma_id: turma.id, titulo: 'Gigante',
+        arquivo: { nome: 'g.pdf', tipo: 'application/pdf', conteudo: Buffer.alloc(800 * 1024, 1).toString('base64') },
+      },
+    });
+    assert.equal(grande.status, 413);
+    assert.match(grande.dados.erro, /limite/i);
+  });
+});
+
+test('tarefa: o aluno entrega, o professor devolve com motivo e o aluno refaz', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, turma, ana } = await turmaComAluno(base);
+    const tarefa = (await admin('/api/tarefas', {
+      metodo: 'POST',
+      corpo: {
+        turma_id: turma.id, titulo: 'Registro da observação 3',
+        enunciado: 'Descreva sem interpretar.', prazo: '2026-04-20', horas_sugeridas: 4,
+        categoria_id: await idCategoria(admin, 'Registro cursivo'),
+      },
+    })).dados.tarefa;
+
+    const semNada = await ana(`/api/tarefas/${tarefa.id}/entrega`, { metodo: 'PUT', corpo: { texto: '  ' } });
+    assert.equal(semNada.status, 400);
+
+    const enviada = await ana(`/api/tarefas/${tarefa.id}/entrega`, {
+      metodo: 'PUT',
+      corpo: { texto: 'Primeira versão do registro.', arquivo: arquivoExemplo('registro.pdf') },
+    });
+    assert.equal(enviada.status, 200, JSON.stringify(enviada.dados));
+    assert.equal(enviada.dados.entrega.status, 'enviada');
+
+    const fila = await admin(`/api/tarefas/${tarefa.id}/entregas`);
+    assert.equal(fila.dados.entregas.length, 1);
+    assert.equal(fila.dados.entregas[0].aluno_nome, 'Ana Ribeiro');
+    assert.equal(fila.dados.entregas[0].arquivo_nome, 'registro.pdf');
+    assert.equal(fila.dados.sem_entregar.length, 0);
+
+    const semMotivo = await admin(`/api/entregas/${enviada.dados.entrega.id}/avaliacao`, {
+      metodo: 'POST', corpo: { status: 'devolvida' },
+    });
+    assert.equal(semMotivo.status, 400, 'devolver exige dizer o porquê');
+
+    const devolvida = await admin(`/api/entregas/${enviada.dados.entrega.id}/avaliacao`, {
+      metodo: 'POST',
+      corpo: { status: 'devolvida', observacao: 'Separe descrição de interpretação no 2º parágrafo.' },
+    });
+    assert.equal(devolvida.dados.entrega.status, 'devolvida');
+    assert.equal(devolvida.dados.horas_lancadas, 0);
+    assert.equal((await ana('/api/atividades')).dados.resumo.declarado, 0, 'devolver não lança horas');
+
+    const mural = await ana(`/api/turmas/${turma.id}/mural`);
+    const minha = mural.dados.avulsos.tarefas[0].minha_entrega;
+    assert.equal(minha.status, 'devolvida');
+    assert.match(minha.observacao, /descrição de interpretação/);
+
+    const refeita = await ana(`/api/tarefas/${tarefa.id}/entrega`, {
+      metodo: 'PUT', corpo: { texto: 'Versão revisada, separando descrição de interpretação.' },
+    });
+    assert.equal(refeita.dados.entrega.status, 'enviada');
+  });
+});
+
+test('entrega aceita vira hora complementar já validada, sem duplicar ao reavaliar', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, turma, ana } = await turmaComAluno(base);
+    const tarefa = (await admin('/api/tarefas', {
+      metodo: 'POST',
+      corpo: {
+        turma_id: turma.id, titulo: 'Registro da observação 3', horas_sugeridas: 4,
+        categoria_id: await idCategoria(admin, 'Registro cursivo'),
+      },
+    })).dados.tarefa;
+    const entrega = (await ana(`/api/tarefas/${tarefa.id}/entrega`, {
+      metodo: 'PUT', corpo: { texto: 'Registro cursivo dos 40 minutos.' },
+    })).dados.entrega;
+
+    const aceita = await admin(`/api/entregas/${entrega.id}/avaliacao`, {
+      metodo: 'POST', corpo: { status: 'aceita', observacao: 'Bem delimitado.' },
+    });
+    assert.equal(aceita.dados.horas_lancadas, 4, 'usa as horas sugeridas quando nada é dito');
+
+    const resumo = (await ana('/api/atividades')).dados;
+    assert.equal(resumo.resumo.validado, 4);
+    assert.equal(resumo.atividades.length, 1);
+    assert.equal(resumo.atividades[0].titulo, 'Registro da observação 3');
+    assert.equal(resumo.atividades[0].categoria, 'Registro cursivo');
+    assert.equal(resumo.atividades[0].validado, 1);
+    assert.equal(resumo.atividades[0].texto, 'Registro cursivo dos 40 minutos.');
+
+    // Reavaliar com outra carga corrige a mesma atividade.
+    const corrigida = await admin(`/api/entregas/${entrega.id}/avaliacao`, {
+      metodo: 'POST', corpo: { status: 'aceita', horas: 2, observacao: 'Ajustei a carga.' },
+    });
+    assert.equal(corrigida.dados.horas_lancadas, 2);
+    const depois = (await ana('/api/atividades')).dados;
+    assert.equal(depois.atividades.length, 1, 'não duplica');
+    assert.equal(depois.resumo.validado, 2);
+
+    // E o aluno não mexe mais numa entrega aceita.
+    const tentativa = await ana(`/api/tarefas/${tarefa.id}/entrega`, {
+      metodo: 'PUT', corpo: { texto: 'Mudando depois de aceita' },
+    });
+    assert.equal(tentativa.status, 409);
+  });
+});
+
+test('aluno não publica aula, material nem tarefa', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { turma, ana } = await turmaComAluno(base);
+    assert.equal((await ana('/api/aulas', { metodo: 'POST', corpo: { turma_id: turma.id, titulo: 'X' } })).status, 403);
+    assert.equal((await ana('/api/materiais', { metodo: 'POST', corpo: { turma_id: turma.id, titulo: 'X', tipo: 'link', url: 'https://x.br' } })).status, 403);
+    assert.equal((await ana('/api/tarefas', { metodo: 'POST', corpo: { turma_id: turma.id, titulo: 'X' } })).status, 403);
+  });
+});
+
+test('aula não publicada fica escondida do aluno', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, turma, ana } = await turmaComAluno(base);
+    await admin('/api/aulas', {
+      metodo: 'POST', corpo: { turma_id: turma.id, titulo: 'Rascunho da aula 4', publicada: false },
+    });
+    await admin('/api/aulas', { metodo: 'POST', corpo: { turma_id: turma.id, titulo: 'Aula 3' } });
+
+    assert.equal((await ana(`/api/turmas/${turma.id}/mural`)).dados.aulas.length, 1);
+    assert.equal((await admin(`/api/turmas/${turma.id}/mural`)).dados.aulas.length, 2);
   });
 });

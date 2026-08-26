@@ -2,6 +2,7 @@
 // própria plataforma (assets); aqui só passam as chamadas /api/*.
 
 import { adaptarD1 } from './src/d1.js';
+import { armazenamentoR2, armazenamentoD1 } from './src/arquivos.js';
 import { lerCookies, usuarioDaSessao } from './src/auth.js';
 import { criarRotas, despachar, ErroHttp } from './src/api.js';
 
@@ -19,7 +20,12 @@ export default {
     }
 
     const bd = adaptarD1(env.DB);
-    const rotas = criarRotas(bd, { iteracoesSenha: env.ITERACOES_SENHA });
+    const rotas = criarRotas(bd, {
+      iteracoesSenha: env.ITERACOES_SENHA,
+      // Com o bucket R2 ligado, os arquivos vão para lá; sem ele, ficam no
+      // próprio D1, com limite bem menor mas sem nada para configurar.
+      arquivos: env.ARQUIVOS ? armazenamentoR2(env.ARQUIVOS) : armazenamentoD1(bd),
+    });
 
     try {
       const token = lerCookies(request.headers.get('cookie')).sessao;
@@ -54,6 +60,9 @@ export default {
 
       if (resultado.csv !== undefined) {
         return new Response(resultado.csv, { headers: resultado.cabecalhos });
+      }
+      if (resultado.binario !== undefined) {
+        return new Response(resultado.binario, { headers: resultado.cabecalhos });
       }
       return json(resultado.corpo, resultado.status || 200, resultado.cabecalhos);
     } catch (e) {

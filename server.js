@@ -6,12 +6,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bancoLocal } from './src/sqlite.js';
+import { armazenamentoDisco } from './src/arquivos-disco.js';
 import { lerCookies, usuarioDaSessao } from './src/auth.js';
 import { criarRotas, despachar, ErroHttp } from './src/api.js';
 
 const RAIZ = path.dirname(fileURLToPath(import.meta.url));
 const PUBLICO = path.join(RAIZ, 'public');
-const LIMITE_CORPO = 6 * 1024 * 1024; // análises longas cabem; acima disso é abuso
+// Arquivos chegam em base64 dentro do JSON, o que engorda o corpo em ~1/3.
+const LIMITE_CORPO = 14 * 1024 * 1024;
 
 const TIPOS = {
   '.html': 'text/html; charset=utf-8',
@@ -74,8 +76,11 @@ function servirEstatico(res, caminhoUrl) {
   });
 }
 
-export function criarServidor(bd = bancoLocal()) {
-  const rotas = criarRotas(bd, { iteracoesSenha: process.env.ITERACOES_SENHA });
+export function criarServidor(bd = bancoLocal(), opcoes = {}) {
+  const rotas = criarRotas(bd, {
+    iteracoesSenha: process.env.ITERACOES_SENHA,
+    arquivos: opcoes.arquivos ?? armazenamentoDisco(),
+  });
 
   const servidor = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -107,6 +112,11 @@ export function criarServidor(bd = bancoLocal()) {
       if (resultado.csv !== undefined) {
         res.writeHead(200, { ...resultado.cabecalhos, 'Content-Length': Buffer.byteLength(resultado.csv) });
         return res.end(resultado.csv);
+      }
+      if (resultado.binario !== undefined) {
+        const corpo = Buffer.from(resultado.binario);
+        res.writeHead(200, { ...resultado.cabecalhos, 'Content-Length': corpo.length });
+        return res.end(corpo);
       }
       responderJson(res, resultado.status || 200, resultado.corpo, resultado.cabecalhos);
     } catch (e) {

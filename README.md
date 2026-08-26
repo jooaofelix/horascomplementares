@@ -267,8 +267,33 @@ npm test
 Sobe o servidor com um banco em memória e cobre cadastro, login, registro de horas, validação,
 permissões entre alunos, exportação e os erros de formulário.
 
+## Onde os dados ficam, e como olhar
+
+Tudo mora num banco SQL de verdade — SQLite, servido como **Cloudflare D1** em produção e como
+arquivo local em desenvolvimento. São tabelas relacionadas com chave estrangeira e índice, não
+arquivos soltos.
+
+Ver quantos registros existem em cada tabela, direto do banco publicado:
+
+```bash
+npm run banco:ver
+```
+
+Consultar o que quiser, em SQL:
+
+```bash
+npx wrangler d1 execute horas-complementares --remote \
+  --command "SELECT nome, email, papel FROM usuarios ORDER BY id"
+```
+
+Pelo navegador, sem terminal: **dash.cloudflare.com** → Storage & Databases → D1 →
+`horas-complementares` → aba **Console**, que aceita SQL e mostra o resultado em tabela.
+
+O banco local (`data/horas.db`) abre em qualquer visualizador de SQLite — DB Browser for SQLite,
+TablePlus, ou a extensão SQLite do próprio VS Code.
+
 ## Backup
 
 - **Local**: tudo mora em `data/horas.db`; pare o servidor e copie a pasta `data/`.
-- **Publicado**: `npx wrangler d1 export horas-complementares --remote --output=backup.sql`.
+- **Publicado**: `npm run banco:backup` (gera `backup-horas.sql`, o banco inteiro em SQL).
 - **Sempre**: o CSV exportado pela interface serve como cópia em formato aberto.

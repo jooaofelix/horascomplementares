@@ -33,9 +33,18 @@ const argumentos = [
 
 let bruto;
 try {
-  bruto = execFileSync('npx', argumentos, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
-} catch {
-  console.error('\nNão consegui consultar o banco. Confira se o `npx wrangler login` já foi feito.');
+  // stdin herdado: sem um terminal à vista, o wrangler se declara não
+  // interativo e passa a exigir CLOUDFLARE_API_TOKEN mesmo já estando logado.
+  bruto = execFileSync('npx', argumentos, { encoding: 'utf8', stdio: ['inherit', 'pipe', 'pipe'] });
+} catch (e) {
+  // Mostrar o que o wrangler falou é o que permite entender a causa; engolir a
+  // saída dele deixa quem roda no escuro.
+  console.error('\nO wrangler não conseguiu consultar o banco. Ele respondeu:\n');
+  const saida = [e.stdout, e.stderr].filter(Boolean).join('\n').trim();
+  console.error(saida || `(sem saída) código ${e.status ?? '?'}`);
+  console.error('\nSe falar em login, rode: npx wrangler login');
+  console.error('Para consultar sem este atalho:');
+  console.error(`  npx wrangler d1 execute horas-complementares --remote --command "SELECT ${sql}"`);
   process.exit(1);
 }
 

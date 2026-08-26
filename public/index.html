@@ -103,14 +103,15 @@
 
   <!-- ---- ALUNO ---- -->
   <div id="painel-aluno" class="oculto">
-    <div class="cartao oculto" id="cartao-mural-aluno">
+    <div class="cartao oculto" id="cartao-mural-aluno" data-area="aulas">
       <h2>Aulas e tarefas</h2>
       <p class="explicacao">O que o professor publicou na sua turma. Toque para abrir o material ou entregar.</p>
       <div id="mural-aluno"></div>
     </div>
 
-    <div class="cartao">
-      <h2>Minhas horas complementares</h2>
+    <div class="cartao" id="cartao-horas-aluno" data-area="horas">
+      <span class="etiqueta">Horas complementares</span>
+      <h2>Meu progresso</h2>
       <p class="explicacao" id="explicacao-progresso"></p>
       <div class="numeros">
         <div class="numero"><div class="valor" id="n-validado">0</div><div class="rotulo">aprovadas</div></div>
@@ -130,7 +131,7 @@
       <p class="explicacao" id="falta-meta" style="margin:16px 0 0"></p>
     </div>
 
-    <div class="cartao oculto" id="cartao-categorias">
+    <div class="cartao oculto" id="cartao-categorias" data-area="horas">
       <h2>Por categoria</h2>
       <p class="explicacao">Cada categoria tem um teto definido pelo seu curso.</p>
       <div id="lista-categorias"></div>
@@ -204,7 +205,7 @@
       </form>
     </div>
 
-    <div class="cartao">
+    <div class="cartao" id="cartao-atividades-aluno" data-area="horas">
       <h2>Suas atividades</h2>
       <p class="explicacao">Editar uma atividade já validada faz ela voltar para a fila do professor.</p>
       <div class="linha" style="margin-bottom:16px">
@@ -236,14 +237,17 @@
       <select id="filtro-turma"></select>
     </div>
 
-    <div id="aba-turma" class="cartao">
+    <div class="painel-resumo oculto" id="resumo-professor"></div>
+
+    <div id="aba-turma" class="cartao" data-area="alunos">
+      <span class="etiqueta">Turma</span>
       <h2>Alunos</h2>
       <p class="explicacao">Quanto cada aluno acumulou e quantas atividades esperam por você.</p>
       <div class="grade" id="lista-alunos"></div>
       <button class="secundario" id="btn-exportar-prof" style="margin-top:16px">Baixar planilha</button>
     </div>
 
-    <div id="aba-registros" class="cartao oculto">
+    <div id="aba-registros" class="cartao oculto" data-area="horas">
       <h2>Validar horas</h2>
       <p class="explicacao">Leia a análise, escreva uma observação se quiser e valide.</p>
       <div class="linha" style="margin-bottom:16px">
@@ -321,6 +325,13 @@
             <label for="nova-turma-meta">Meta de horas <span class="opcional">(vazio = a do curso)</span></label>
             <input id="nova-turma-meta" type="number" min="1" step="1" inputmode="numeric">
           </div>
+        </div>
+        <div class="campo">
+          <label class="opcao-turma" for="nova-turma-conta">
+            <input type="checkbox" id="nova-turma-conta">
+            <span>Esta turma gera horas complementares
+              <span class="sub">— marque para estágio, extensão, monitoria</span></span>
+          </label>
         </div>
         <button id="btn-criar-turma">Criar turma</button>
       </div>

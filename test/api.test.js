@@ -1537,3 +1537,84 @@ test('editar a aula troca as turmas que a recebem', async () => {
     assert.equal((await ana(`/api/turmas/${manha.id}/mural`)).dados.aulas.length, 1, 'e continua em 3A');
   });
 });
+
+// ---------------------------------------------------------------- turma sem horas e anotações
+
+test('turma comum não gera horas; turma de estágio gera', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const disciplina = (await admin('/api/turmas', {
+      metodo: 'POST', corpo: { nome: 'Psicologia do Desenvolvimento', conta_horas: false },
+    })).dados.turma;
+    const estagio = (await admin('/api/turmas', {
+      metodo: 'POST', corpo: { nome: 'Estágio supervisionado', conta_horas: true, meta_horas: 300 },
+    })).dados.turma;
+
+    assert.equal(disciplina.conta_horas, 0);
+    assert.equal(estagio.conta_horas, 1);
+
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', disciplina.codigo);
+    const bruno = await criarAluno(base, 'Bruno', 'bruno@ex.br', estagio.codigo);
+    assert.equal((await ana('/api/eu')).dados.conta_horas, false, 'aluno de disciplina não vê horas');
+    assert.equal((await bruno('/api/eu')).dados.conta_horas, true);
+
+    // A turma pode passar a contar depois, sem recriar nada.
+    const virou = await admin(`/api/turmas/${disciplina.id}`, {
+      metodo: 'PUT', corpo: { nome: 'Psicologia do Desenvolvimento', conta_horas: true, meta_horas: 100 },
+    });
+    assert.equal(virou.dados.turma.conta_horas, 1);
+    assert.equal((await ana('/api/eu')).dados.conta_horas, true);
+  });
+});
+
+test('o professor anota sobre o aluno, e o aluno não enxerga nada disso', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, ana } = await turmaComAluno(base);
+    const alunoId = (await admin('/api/turma')).dados.alunos[0].id;
+
+    const criada = await admin(`/api/alunos/${alunoId}/anotacoes`, {
+      metodo: 'POST',
+      corpo: { texto: 'Faltou nos dois últimos encontros de campo. Combinamos reposição em 12/05.' },
+    });
+    assert.equal(criada.status, 201, JSON.stringify(criada.dados));
+
+    const lista = await admin(`/api/alunos/${alunoId}/anotacoes`);
+    assert.equal(lista.dados.anotacoes.length, 1);
+    assert.equal(lista.dados.anotacoes[0].autor_nome, 'Profa. Marina');
+    assert.match(lista.dados.anotacoes[0].texto, /reposição/);
+
+    // O aluno não alcança a rota, nem a dele mesmo.
+    assert.equal((await ana(`/api/alunos/${alunoId}/anotacoes`)).status, 403);
+    assert.equal((await ana(`/api/alunos/${alunoId}/anotacoes`, { metodo: 'POST', corpo: { texto: 'x' } })).status, 403);
+
+    // Nada de anotação vaza no que o aluno lê.
+    const dele = JSON.stringify([(await ana('/api/eu')).dados, (await ana('/api/atividades')).dados]);
+    assert.doesNotMatch(dele, /reposição/);
+  });
+});
+
+test('anotação só é editada por quem escreveu, e só sobre aluno ao alcance', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const helena = await criarProfessorConvidado(base, admin, 'Profa. Helena', 'helena@exemplo.br');
+    const turmaAdmin = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: 'Turma do admin' } })).dados.turma;
+    await criarAluno(base, 'Ana', 'ana@ex.br', turmaAdmin.codigo);
+    const alunoId = (await admin('/api/turma')).dados.alunos[0].id;
+
+    const anotacao = (await admin(`/api/alunos/${alunoId}/anotacoes`, {
+      metodo: 'POST', corpo: { texto: 'Observação do admin.' },
+    })).dados.anotacao;
+
+    // Helena não alcança a turma do admin.
+    assert.equal((await helena(`/api/alunos/${alunoId}/anotacoes`)).status, 404);
+    assert.equal((await helena(`/api/anotacoes/${anotacao.id}`, { metodo: 'PUT', corpo: { texto: 'mudou' } })).status, 404);
+    assert.equal((await helena(`/api/anotacoes/${anotacao.id}`, { metodo: 'DELETE' })).status, 404);
+
+    const editada = await admin(`/api/anotacoes/${anotacao.id}`, {
+      metodo: 'PUT', corpo: { texto: 'Observação revisada.' },
+    });
+    assert.equal(editada.dados.anotacao.texto, 'Observação revisada.');
+    assert.equal((await admin(`/api/anotacoes/${anotacao.id}`, { metodo: 'DELETE' })).status, 200);
+    assert.equal((await admin(`/api/alunos/${alunoId}/anotacoes`)).dados.anotacoes.length, 0);
+  });
+});

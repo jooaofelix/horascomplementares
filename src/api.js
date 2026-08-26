@@ -134,7 +134,7 @@ const normalizarCodigo = (valor, rotulo = 'o código da turma') =>
 function turmasVisiveis(bd, usuario) {
   const { filtro, parametros } = escopoTurmas(usuario);
   return bd.all(
-    `SELECT t.id, t.nome, t.periodo, t.codigo, t.meta_horas, t.curso_id, t.professor_id,
+    `SELECT t.id, t.nome, t.periodo, t.codigo, t.meta_horas, t.conta_horas, t.curso_id, t.professor_id,
             c.nome AS curso_nome, p.nome AS professor_nome,
             (SELECT COUNT(*) FROM usuarios u WHERE u.turma_id = t.id AND u.papel = 'aluno') AS alunos
        FROM turmas t
@@ -377,6 +377,19 @@ async function cursoValido(bd, valor, usuario) {
     if (!coordena) throw erro(403, 'Você não coordena esse curso.');
   }
   return curso;
+}
+
+// Só quem alcança a turma do aluno chega às anotações dele.
+async function alunoAoAlcance(bd, alunoId, usuario) {
+  const { filtro, parametros } = escopoTurmas(usuario);
+  const aluno = await bd.get(
+    `SELECT u.id, u.nome FROM usuarios u
+       JOIN turmas t ON t.id = u.turma_id
+      WHERE u.id = ? AND u.papel = 'aluno' ${filtro}`,
+    alunoId, ...parametros,
+  );
+  if (!aluno) throw erro(404, 'Aluno não encontrado.');
+  return aluno;
 }
 
 // ---------- importação ----------
@@ -869,10 +882,10 @@ export function criarRotas(bd, opcoes = {}) {
       const meta = Number(ctx.corpo.meta_horas ?? curso?.horas_obrigatorias ?? META_PADRAO);
       if (!Number.isFinite(meta) || meta <= 0) throw erro(400, 'Meta de horas inválida.');
       const { ultimoId } = await bd.run(
-        `INSERT INTO turmas(nome, periodo, codigo, professor_id, curso_id, meta_horas, criado_em)
-         VALUES(?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO turmas(nome, periodo, codigo, professor_id, curso_id, meta_horas, conta_horas, criado_em)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
         nome, periodo, await gerarCodigoTurma(bd), professor.id, curso ? curso.id : null,
-        meta, new Date().toISOString(),
+        meta, ctx.corpo.conta_horas === false ? 0 : 1, new Date().toISOString(),
       );
       return { status: 201, corpo: { turma: await bd.get('SELECT * FROM turmas WHERE id = ?', ultimoId) } };
     }],
@@ -890,8 +903,10 @@ export function criarRotas(bd, opcoes = {}) {
       const meta = Number(ctx.corpo.meta_horas ?? atual.meta_horas);
       if (!Number.isFinite(meta) || meta <= 0) throw erro(400, 'Meta de horas inválida.');
       await bd.run(
-        'UPDATE turmas SET nome = ?, periodo = ?, curso_id = ?, meta_horas = ? WHERE id = ?',
-        nome, periodo, curso ? curso.id : null, meta, id,
+        'UPDATE turmas SET nome = ?, periodo = ?, curso_id = ?, meta_horas = ?, conta_horas = ? WHERE id = ?',
+        nome, periodo, curso ? curso.id : null, meta,
+        ctx.corpo.conta_horas === undefined ? atual.conta_horas : (ctx.corpo.conta_horas ? 1 : 0),
+        id,
       );
       return { corpo: { turma: await bd.get('SELECT * FROM turmas WHERE id = ?', id) } };
     }],
@@ -960,6 +975,8 @@ export function criarRotas(bd, opcoes = {}) {
           'SELECT c.id, c.nome, c.horas_obrigatorias FROM usuarios u JOIN cursos c ON c.id = u.curso_id WHERE u.id = ?',
           usuario.id,
         );
+        const turma = await bd.get('SELECT conta_horas FROM turmas WHERE id = ?', usuario.turma_id);
+        corpo.conta_horas = turma ? turma.conta_horas === 1 : false;
         corpo.resumo = await resumo(bd, usuario.id);
         corpo.professor = await bd.get(
           `SELECT p.nome, p.instituicao FROM usuarios u
@@ -1148,7 +1165,8 @@ export function criarRotas(bd, opcoes = {}) {
       const { filtro, parametros } = escopoTurmas(equipe);
       const linhas = await bd.all(
         `SELECT u.id, u.nome, u.email, u.matricula, u.turma_id, u.semestre,
-                t.nome AS turma_nome, t.meta_horas, c.nome AS curso_nome, c.horas_obrigatorias,
+                t.nome AS turma_nome, t.meta_horas, t.conta_horas,
+                c.nome AS curso_nome, c.horas_obrigatorias,
                 COUNT(a.id) AS registros,
                 COALESCE(SUM(a.horas), 0) AS declarado,
                 COALESCE(SUM(CASE WHEN a.status = 'aprovado' THEN COALESCE(a.horas_aprovadas, a.horas) ELSE 0 END), 0) AS validado,
@@ -1787,6 +1805,53 @@ export function criarRotas(bd, opcoes = {}) {
           horas_lancadas: status === 'aceita' ? horas : 0,
         },
       };
+    }],
+
+    // ---------- anotações sobre o aluno (o aluno não vê) ----------
+
+    ['GET', /^\/api\/alunos\/(\d+)\/anotacoes$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const aluno = await alunoAoAlcance(bd, Number(ctx.parametros[0]), equipe);
+      const anotacoes = await bd.all(
+        `SELECT a.id, a.texto, a.criada_em, a.atualizada_em, u.nome AS autor_nome, a.autor_id
+           FROM anotacoes a LEFT JOIN usuarios u ON u.id = a.autor_id
+          WHERE a.aluno_id = ? ORDER BY a.id DESC`,
+        aluno.id,
+      );
+      return { corpo: { aluno: { id: aluno.id, nome: aluno.nome }, anotacoes } };
+    }],
+
+    ['POST', /^\/api\/alunos\/(\d+)\/anotacoes$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const aluno = await alunoAoAlcance(bd, Number(ctx.parametros[0]), equipe);
+      const agora = new Date().toISOString();
+      const { ultimoId } = await bd.run(
+        'INSERT INTO anotacoes(aluno_id, autor_id, texto, criada_em, atualizada_em) VALUES(?, ?, ?, ?, ?)',
+        aluno.id, equipe.id,
+        texto(ctx.corpo.texto, 'a anotação', { max: 4000 }),
+        agora, agora,
+      );
+      return { status: 201, corpo: { anotacao: await bd.get('SELECT * FROM anotacoes WHERE id = ?', ultimoId) } };
+    }],
+
+    // Cada um edita e apaga o que escreveu.
+    ['PUT', /^\/api\/anotacoes\/(\d+)$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const anotacao = await bd.get('SELECT * FROM anotacoes WHERE id = ?', Number(ctx.parametros[0]));
+      if (!anotacao || anotacao.autor_id !== equipe.id) throw erro(404, 'Anotação não encontrada.');
+      await bd.run(
+        'UPDATE anotacoes SET texto = ?, atualizada_em = ? WHERE id = ?',
+        texto(ctx.corpo.texto, 'a anotação', { max: 4000 }), new Date().toISOString(), anotacao.id,
+      );
+      return { corpo: { anotacao: await bd.get('SELECT * FROM anotacoes WHERE id = ?', anotacao.id) } };
+    }],
+
+    ['DELETE', /^\/api\/anotacoes\/(\d+)$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const anotacao = await bd.get('SELECT * FROM anotacoes WHERE id = ?', Number(ctx.parametros[0]));
+      if (!anotacao || anotacao.autor_id !== equipe.id) throw erro(404, 'Anotação não encontrada.');
+      await bd.run('DELETE FROM anotacoes WHERE id = ?', anotacao.id);
+      return { corpo: { ok: true } };
     }],
 
     ['GET', /^\/api\/exportar\.csv$/, async (ctx) => {

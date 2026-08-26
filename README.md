@@ -131,6 +131,27 @@ desativada e some das listas novas, preservando o histórico.
 
 O aluno herda o curso da turma em que entrou pelo código — não precisa escolher nada.
 
+## Turma que gera horas, turma que não gera
+
+Nem toda turma vira hora complementar. Ao criar (ou editar) a turma, o professor marca **"esta turma
+gera horas complementares"** — para estágio, extensão, monitoria. Uma disciplina comum fica
+desmarcada, e então:
+
+- o aluno dessa turma **não vê** a seção de horas: a tela dele é só aulas e tarefas;
+- no painel do professor, o cartão do aluno mostra "turma sem horas complementares" no lugar dos
+  totais;
+- a mesma conta de professor pode ter as duas coisas ao mesmo tempo — Técnicas de Observação sem
+  horas, Estágio Supervisionado com 300 h de meta.
+
+Marcar depois funciona: a turma passa a contar sem precisar recriar nada.
+
+## Anotações sobre o aluno
+
+No cartão de cada aluno há um caderno privado da equipe: "faltou nos dois últimos encontros de campo,
+combinamos reposição em 12/05". Cada anotação guarda quem escreveu e quando; cada um edita e apaga só
+o que escreveu. **O aluno nunca vê** — nem pela API: a rota responde 403 para ele, e um teste confere
+que nada disso vaza no que ele lê.
+
 ## Turmas e códigos
 
 Na aba **Turmas**, o professor cria cada turma com nome, período e **meta de horas própria**. Cada

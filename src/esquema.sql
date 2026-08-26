@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS turmas (
   professor_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
   curso_id     INTEGER REFERENCES cursos(id) ON DELETE SET NULL,
   meta_horas   REAL NOT NULL DEFAULT 200,
+  conta_horas  INTEGER NOT NULL DEFAULT 1,
   criado_em    TEXT NOT NULL
 );
 
@@ -124,6 +125,16 @@ CREATE TABLE IF NOT EXISTS convites (
 CREATE TABLE IF NOT EXISTS config (
   chave TEXT PRIMARY KEY,
   valor TEXT NOT NULL
+);
+
+-- Caderno do professor sobre cada aluno. O aluno nunca vê.
+CREATE TABLE IF NOT EXISTS anotacoes (
+  id            INTEGER PRIMARY KEY,
+  aluno_id      INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  autor_id      INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  texto         TEXT NOT NULL,
+  criada_em     TEXT NOT NULL,
+  atualizada_em TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS auditoria (

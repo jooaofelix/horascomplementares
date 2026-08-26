@@ -37,6 +37,7 @@ const COLUNAS_NOVAS = [
   ['usuarios', 'curso_id', 'INTEGER REFERENCES cursos(id) ON DELETE SET NULL'],
   ['usuarios', 'semestre', 'TEXT'],
   ['turmas', 'curso_id', 'INTEGER REFERENCES cursos(id) ON DELETE SET NULL'],
+  ['turmas', 'conta_horas', 'INTEGER NOT NULL DEFAULT 1'],
   ['atividades', 'origem_id', 'TEXT'],
   ['turmas', 'professor_id', 'INTEGER REFERENCES usuarios(id) ON DELETE SET NULL'],
   ['turmas', 'codigo', 'TEXT'],
@@ -68,6 +69,7 @@ function garantirColunas(db) {
     CREATE INDEX IF NOT EXISTS idx_usuarios_curso ON usuarios(curso_id);
     CREATE INDEX IF NOT EXISTS idx_auditoria_entidade ON auditoria(entidade, entidade_id, id);
     CREATE INDEX IF NOT EXISTS idx_atividades_status ON atividades(status);
+    CREATE INDEX IF NOT EXISTS idx_anotacoes_aluno ON anotacoes(aluno_id, id);
     UPDATE atividades SET status = 'aprovado', horas_aprovadas = horas
      WHERE validado = 1 AND status = 'pendente';
     CREATE INDEX IF NOT EXISTS idx_regras_curso ON regras_categoria(curso_id);

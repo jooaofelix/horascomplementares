@@ -216,7 +216,7 @@ function desenharResumo() {
 
 function desenharCategorias() {
   const linhas = estado.resumo?.categorias ?? [];
-  $('#cartao-categorias').classList.toggle('oculto', linhas.length === 0);
+  $('#cartao-categorias').classList.toggle('oculto', linhas.length === 0 || estado.contaHoras === false);
   if (!linhas.length) return;
 
   $('#lista-categorias').innerHTML = linhas.map((c) => {
@@ -489,6 +489,12 @@ $$('#abas-professor button').forEach((botao) => {
       'oculto',
       !['turma', 'registros', 'aulas'].includes(botao.dataset.aba) || estado.turmas.length < 2,
     );
+
+    // Trocar de aba busca o estado atual: um aluno pode ter entrado na turma
+    // enquanto a página estava aberta.
+    if (['turma', 'registros', 'aulas'].includes(botao.dataset.aba)) {
+      carregarProfessor().catch(falhar);
+    }
   };
 });
 
@@ -496,6 +502,27 @@ $('#filtro-turma').addEventListener('change', async (e) => {
   estado.turmaFiltro = e.target.value;
   await carregarProfessor();
 });
+
+function desenharResumoProfessor() {
+  const alunos = estado.alunos;
+  const aValidar = alunos.reduce((total, a) => total + a.pendentes, 0);
+  const aCorrigir = estado.mural
+    ? [...estado.mural.aulas.flatMap((a) => a.tarefas), ...estado.mural.avulsos.tarefas]
+        .reduce((total, t) => total + (t.a_avaliar || 0), 0)
+    : 0;
+  const comHoras = estado.turmas.some((t) => t.conta_horas);
+
+  const pecas = [
+    ['var(--alunos)', alunos.length, alunos.length === 1 ? 'aluno na seleção' : 'alunos na seleção'],
+    ['var(--aulas)', aCorrigir, aCorrigir === 1 ? 'entrega a corrigir' : 'entregas a corrigir'],
+    comHoras ? ['var(--horas)', aValidar, aValidar === 1 ? 'hora a validar' : 'horas a validar'] : null,
+  ].filter(Boolean);
+
+  $('#resumo-professor').innerHTML = pecas
+    .map(([cor, n, r]) => `<div class="peca" style="--cor-peca:${cor}"><div class="n">${n}</div><div class="r">${r}</div></div>`)
+    .join('');
+  $('#resumo-professor').classList.remove('oculto');
+}
 
 function desenharAlunos() {
   $('#lista-alunos').innerHTML = estado.alunos.length
@@ -510,15 +537,70 @@ function desenharAlunos() {
             <i class="validado" style="width:${pct}%"></i><i class="pendente" style="width:${pendente}%"></i>
           </div>
           <div class="numeros-linha">
-            <span><b>${horas(a.validado)}</b> validadas</span>
-            <span><b>${horas(a.declarado)}</b> lançadas</span>
-            <span>meta ${horas(meta)}</span>
-            ${a.pendentes > 0 ? `<span class="selo esperando">${a.pendentes} a validar</span>` : ''}
+            ${a.conta_horas
+              ? `<span><b>${horas(a.validado)}</b> validadas</span>
+                 <span><b>${horas(a.declarado)}</b> lançadas</span>
+                 <span>meta ${horas(meta)}</span>
+                 ${a.pendentes > 0 ? `<span class="selo esperando">${a.pendentes} a validar</span>` : ''}`
+              : '<span class="sub">turma sem horas complementares</span>'}
           </div>
+          <details style="margin-top:12px">
+            <summary data-anotacoes="${a.id}" style="cursor:pointer;color:var(--alunos);font-weight:600;font-size:15px">
+              Anotações sobre o aluno
+            </summary>
+            <div data-anotacoes-de="${a.id}" class="sub" style="margin-top:10px">carregando…</div>
+          </details>
         </div>`;
       }).join('')
     : '<p class="vazio">Nenhum aluno entrou nas suas turmas ainda. Passe o código da turma para eles.</p>';
 }
+
+async function mostrarAnotacoes(alunoId, alvo) {
+  try {
+    const { anotacoes } = await api(`/api/alunos/${alunoId}/anotacoes`);
+    alvo.innerHTML = `
+      ${anotacoes.length
+        ? anotacoes.map((n) => `<div class="anotacao">
+            ${escapar(n.texto)}
+            <div class="quem">
+              ${escapar(n.autor_nome || 'alguém')} · ${dataBr(n.criada_em)}
+              ${n.autor_id === estado.usuario.id
+                ? `<button class="perigo mini" data-apagar-anotacao="${n.id}" style="margin-left:8px">apagar</button>`
+                : ''}
+            </div>
+          </div>`).join('')
+        : '<p class="vazio">Nada anotado ainda. O aluno nunca vê o que fica aqui.</p>'}
+      <textarea data-nova-anotacao="${alunoId}" style="min-height:90px;margin-top:10px"
+                placeholder="Ex.: faltou nos dois últimos encontros; combinamos reposição em 12/05."></textarea>
+      <button class="secundario mini" data-salvar-anotacao="${alunoId}" style="margin-top:8px">Salvar anotação</button>`;
+  } catch (err) {
+    alvo.textContent = err.message;
+  }
+}
+
+$('#lista-alunos').addEventListener('click', async (e) => {
+  const { anotacoes, salvarAnotacao, apagarAnotacao } = e.target.dataset;
+  try {
+    if (anotacoes) {
+      const alvo = $(`[data-anotacoes-de="${anotacoes}"]`);
+      if (alvo) await mostrarAnotacoes(anotacoes, alvo);
+    }
+    if (salvarAnotacao) {
+      const campo = $(`[data-nova-anotacao="${salvarAnotacao}"]`);
+      if (!campo.value.trim()) return avisar('Escreva a anotação antes de salvar.');
+      await api(`/api/alunos/${salvarAnotacao}/anotacoes`, { metodo: 'POST', corpo: { texto: campo.value } });
+      await mostrarAnotacoes(salvarAnotacao, $(`[data-anotacoes-de="${salvarAnotacao}"]`));
+      avisar('Anotação salva. Só a equipe vê.', 'ok');
+    }
+    if (apagarAnotacao) {
+      const alunoId = e.target.closest('[data-anotacoes-de]').dataset.anotacoesDe;
+      await api(`/api/anotacoes/${apagarAnotacao}`, { metodo: 'DELETE' });
+      await mostrarAnotacoes(alunoId, $(`[data-anotacoes-de="${alunoId}"]`));
+    }
+  } catch (err) {
+    falhar(err);
+  }
+});
 
 function desenharListaProfessor() {
   const lista = filtrar(estado.atividades, $('#busca-prof').value, $('#filtro-status-prof').value);
@@ -584,7 +666,10 @@ function desenharTurmas() {
   $('#lista-turmas').innerHTML = estado.turmas.length
     ? estado.turmas.map((t) => `<div class="item">
         <div class="nome">${escapar(t.nome)}</div>
-        <div class="sub">${escapar(t.periodo || 'sem período')} · ${t.alunos} aluno(s)</div>
+        <div class="sub">
+          ${escapar(t.periodo || 'sem período')} · ${t.alunos} aluno(s)
+          ${t.conta_horas ? '· <span style="color:var(--horas);font-weight:600">gera horas complementares</span>' : ''}
+        </div>
         <div class="codigo-turma">
           <span class="valor">${escapar(t.codigo || '——')}</span>
           <button class="secundario mini" data-copiar="${escapar(t.codigo || '')}">Copiar convite</button>
@@ -594,6 +679,10 @@ function desenharTurmas() {
           <div class="campo"><label>Período</label><input data-turma-periodo="${t.id}" value="${escapar(t.periodo || '')}"></div>
           <div class="campo"><label>Meta (h)</label><input data-turma-meta="${t.id}" type="number" min="1" inputmode="numeric" value="${t.meta_horas}"></div>
         </div>
+        <label class="opcao-turma" style="margin-bottom:10px">
+          <input type="checkbox" data-turma-conta="${t.id}" ${t.conta_horas ? 'checked' : ''}>
+          <span>Gera horas complementares</span>
+        </label>
         <div class="acoes">
           <button class="secundario mini" data-salvar-turma="${t.id}">Salvar</button>
           <button class="perigo mini" data-excluir-turma="${t.id}">Excluir</button>
@@ -611,6 +700,7 @@ $('#btn-criar-turma').onclick = async () => {
         periodo: $('#nova-turma-periodo').value,
         curso_id: $('#nova-turma-curso').value || null,
         meta_horas: $('#nova-turma-meta').value || undefined,
+        conta_horas: $('#nova-turma-conta').checked,
       },
     });
     $('#nova-turma-nome').value = '';
@@ -637,6 +727,7 @@ $('#lista-turmas').addEventListener('click', async (e) => {
           nome: $(`[data-turma-nome="${salvarTurma}"]`).value,
           periodo: $(`[data-turma-periodo="${salvarTurma}"]`).value,
           meta_horas: $(`[data-turma-meta="${salvarTurma}"]`).value,
+          conta_horas: $(`[data-turma-conta="${salvarTurma}"]`).checked,
         },
       });
       await carregarProfessor();
@@ -1082,8 +1173,16 @@ function desenharMuralAluno() {
       ${tarefas.length ? `<div style="margin-top:12px">${tarefas.map(blocoTarefaAluno).join('')}</div>` : ''}
     </div>`;
 
+  const pendentes = [...mural.aulas.flatMap((a) => a.tarefas), ...mural.avulsos.tarefas]
+    .filter((t) => !t.minha_entrega || t.minha_entrega.status === 'devolvida');
+
   $('#mural-aluno').innerHTML = [
+    pendentes.length
+      ? `<div class="bloco"><h2>Para entregar</h2>${pendentes.map(blocoTarefaAluno).join('')}</div>`
+      : '',
+    mural.aulas.length ? '<div class="bloco"><h2>Aulas</h2>' : '',
     ...mural.aulas.map((a) => secao(a.titulo, a.data_aula ? dataBr(a.data_aula) : '', a.materiais, a.tarefas, a.descricao)),
+    mural.aulas.length ? '</div>' : '',
     (mural.avulsos.materiais.length || mural.avulsos.tarefas.length)
       ? secao('Material e tarefas da turma', '', mural.avulsos.materiais, mural.avulsos.tarefas, null)
       : '',
@@ -1390,6 +1489,7 @@ async function carregarProfessor() {
   );
 
   desenharAlunos();
+  desenharResumoProfessor();
   desenharListaProfessor();
   desenharTurmas();
   desenharEscolhaTurmas();
@@ -1450,6 +1550,12 @@ async function iniciar() {
       .join('');
     $('#meus-nome').value = u.nome;
     $('#meus-matricula').value = u.matricula || '';
+    // Disciplina comum não gera hora complementar: a seção some para o aluno.
+    const comHoras = dados.conta_horas !== false;
+    for (const id of ['#cartao-horas-aluno', '#btn-abrir-form', '#cartao-atividades-aluno']) {
+      $(id)?.classList.toggle('oculto', !comHoras);
+    }
+    estado.contaHoras = comHoras;
     estado.resumo = dados.resumo;
     limparFormulario();
     abrirFormulario(false);

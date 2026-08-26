@@ -16,6 +16,16 @@
   --alerta-barra: #e7b169;
   --erro: #ac2318;
   --erro-fundo: #fceceb;
+  /* Uma cor por área: a tela deixa de ser um bloco verde só. */
+  --aulas: #2f6b52;
+  --aulas-fundo: #e7f1ec;
+  --horas: #9a6212;
+  --horas-fundo: #fbf0dc;
+  --alunos: #1f5f78;
+  --alunos-fundo: #e4f0f5;
+  --turmas: #574a97;
+  --turmas-fundo: #ecebf8;
+
   --raio: 16px;
   --sombra: 0 1px 2px rgba(22, 33, 29, .05), 0 8px 24px rgba(22, 33, 29, .07);
   --toque: 48px;
@@ -233,3 +243,87 @@ button.mini { min-height: 42px; padding: 8px 16px; font-size: 15px; }
   .atividade { padding: 20px; }
   .entrada { margin-top: 48px; }
 }
+
+/* ================= COR POR ÁREA ================= */
+
+.abas button[data-aba="aulas"].ativa { background: var(--aulas); border-color: var(--aulas); }
+.abas button[data-aba="turma"].ativa { background: var(--alunos); border-color: var(--alunos); }
+.abas button[data-aba="registros"].ativa { background: var(--horas); border-color: var(--horas); }
+.abas button[data-aba="turmas"].ativa { background: var(--turmas); border-color: var(--turmas); }
+
+/* Fio colorido no topo do cartão, dizendo de que área ele é. */
+.cartao[data-area] { border-top: 3px solid var(--cor-area, var(--acento)); }
+.cartao[data-area="aulas"] { --cor-area: var(--aulas); }
+.cartao[data-area="horas"] { --cor-area: var(--horas); }
+.cartao[data-area="alunos"] { --cor-area: var(--alunos); }
+.cartao[data-area="turmas"] { --cor-area: var(--turmas); }
+.cartao[data-area] > h2 { color: var(--cor-area); }
+
+/* Etiqueta de seção acima do título, para separar blocos sem mais uma caixa. */
+.etiqueta {
+  display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--cor-area, var(--suave)); margin-bottom: 6px;
+}
+
+/* ================= AGRUPAMENTO ================= */
+
+.bloco { margin-bottom: 26px; }
+.bloco > h2 {
+  font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--suave);
+  margin: 0 0 12px; display: flex; align-items: center; gap: 12px;
+}
+.bloco > h2::after { content: ''; flex: 1; height: 1px; background: var(--borda); }
+
+.destaque {
+  background: linear-gradient(180deg, var(--horas-fundo), var(--superficie) 70%);
+  border-color: #e8d6b4;
+}
+.painel-resumo {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;
+  margin-bottom: 18px;
+}
+.painel-resumo .peca {
+  background: var(--superficie); border: 1px solid var(--borda); border-radius: 14px;
+  padding: 14px 16px; border-left: 4px solid var(--cor-peca, var(--acento));
+}
+.painel-resumo .peca .n { font-size: 24px; font-weight: 700; letter-spacing: -.02em; }
+.painel-resumo .peca .r { font-size: 13px; color: var(--suave); }
+
+/* ================= MOVIMENTO ================= */
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes surgir {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+  }
+  @keyframes entrar-tela {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  .cartao, .item, .atividade { animation: surgir .3s cubic-bezier(.2, .7, .3, 1) both; }
+  /* Escalona os primeiros: a lista "monta" em vez de piscar inteira. */
+  .grade > .item:nth-child(1), #lista-aluno > .atividade:nth-child(1) { animation-delay: .02s; }
+  .grade > .item:nth-child(2), #lista-aluno > .atividade:nth-child(2) { animation-delay: .06s; }
+  .grade > .item:nth-child(3), #lista-aluno > .atividade:nth-child(3) { animation-delay: .1s; }
+  .grade > .item:nth-child(4), #lista-aluno > .atividade:nth-child(4) { animation-delay: .14s; }
+  .grade > .item:nth-child(n+5) { animation-delay: .18s; }
+
+  #aba-aulas:not(.oculto), #aba-turma:not(.oculto), #aba-registros:not(.oculto),
+  #aba-turmas:not(.oculto), #tela-config:not(.oculto) { animation: entrar-tela .22s ease both; }
+
+  .cartao, .item { transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease; }
+  .item:hover { transform: translateY(-1px); box-shadow: var(--sombra); }
+  .barra i { transition: width .5s cubic-bezier(.2, .7, .3, 1); }
+  .abas button { transition: background .18s ease, color .18s ease, border-color .18s ease; }
+  button { transition: background .15s ease, transform .08s ease; }
+  .selo { transition: background .2s ease; }
+}
+
+/* ================= ANOTAÇÕES ================= */
+
+.anotacao {
+  background: var(--alunos-fundo); border-left: 3px solid var(--alunos);
+  border-radius: 0 10px 10px 0; padding: 12px 14px; margin-bottom: 10px; font-size: 15px;
+}
+.anotacao .quem { font-size: 13px; color: var(--suave); margin-top: 6px; }

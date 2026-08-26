@@ -11,7 +11,7 @@
     "start": "node --disable-warning=ExperimentalWarning server.js",
     "test": "node --disable-warning=ExperimentalWarning --test",
     "banco:criar": "wrangler d1 create horas-complementares",
-    "banco:migrar": "wrangler d1 execute horas-complementares --remote --file=src/esquema.sql",
+    "banco:migrar": "node scripts/migrar.mjs",
     "deploy": "wrangler deploy",
     "banco:ver": "node scripts/ver-banco.mjs",
     "banco:backup": "wrangler d1 export horas-complementares --remote --output=backup-horas.sql"

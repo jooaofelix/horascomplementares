@@ -58,22 +58,22 @@ No fim o wrangler mostra o endereço, algo como `https://horas-complementares.SE
 Para atualizar depois de mexer no código, só `npm run deploy` de novo — os dados ficam no D1 e não
 são tocados pelo deploy.
 
-Quando uma mudança precisar de colunas novas no banco, os arquivos ficam em `migracoes/` e rodam uma
-vez cada:
+Quando uma mudança precisar de colunas novas no banco:
 
 ```bash
-npx wrangler d1 execute horas-complementares --remote --file=migracoes/002-turmas-e-campos.sql
-npx wrangler d1 execute horas-complementares --remote --file=migracoes/003-saas-multiprofessor.sql
-npx wrangler d1 execute horas-complementares --remote --file=migracoes/005-integracao.sql
-npx wrangler d1 execute horas-complementares --remote --file=migracoes/006-cursos-categorias-papeis.sql
-npx wrangler d1 execute horas-complementares --remote --file=migracoes/007-aulas-materiais-entregas.sql
-npx wrangler d1 execute horas-complementares --remote --file=migracoes/008-status-e-auditoria.sql
-npx wrangler d1 execute horas-complementares --remote --file=migracoes/009-arquivos-em-partes.sql
-npx wrangler d1 execute horas-complementares --remote --file=migracoes/004-convites-de-professor.sql
+npm run banco:migrar
 ```
+
+Ele aplica só o que falta, na ordem, e pode ser rodado quantas vezes você quiser: quando um arquivo
+já foi aplicado, ele é refeito comando a comando e os passos que já existem são pulados. É o mesmo
+comando para um banco novo e para um que parou no meio.
 
 O banco local não precisa disso: ao iniciar, o `npm start` confere e cria sozinho as colunas que
 faltarem.
+
+Um teste refaz esse caminho a cada `npm test`: parte do esquema do primeiro commit, aplica todas as
+migrações em ordem e confere que o banco resultante tem tudo o que o código espera — inclusive
+rodando as migrações duas vezes, para garantir que repetir não quebra.
 
 Testar a versão Cloudflare na sua máquina antes de publicar:
 

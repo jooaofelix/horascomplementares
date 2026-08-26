@@ -3,6 +3,12 @@
 -- Rodar uma vez:
 -- wrangler d1 execute horas-complementares --remote --file=migracoes/009-arquivos-em-partes.sql
 
+-- Pode não existir se este banco nunca passou pela migração das aulas.
+CREATE TABLE IF NOT EXISTS arquivos_conteudo (
+  chave    TEXT PRIMARY KEY,
+  conteudo BLOB NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS arquivos_partes (
   chave    TEXT NOT NULL,
   parte    INTEGER NOT NULL,

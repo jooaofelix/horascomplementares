@@ -96,6 +96,7 @@ export function criarServidor(bd = bancoLocal()) {
         corpo,
         token,
         usuario,
+        autorizacao: req.headers.authorization,
         seguro: false, // servidor local roda em http://
         exigirLogin() {
           if (!usuario) throw new ErroHttp(401, 'Faça login para continuar.');

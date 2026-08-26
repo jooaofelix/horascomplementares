@@ -9,6 +9,7 @@ const estado = {
   resumo: null,
   alunos: [],
   convites: [],
+  chaves: [],
   turmaFiltro: '',
   papelCadastro: 'aluno',
 };
@@ -390,7 +391,7 @@ async function lerArquivo(arquivo) {
 $$('.abas button').forEach((botao) => {
   botao.onclick = () => {
     $$('.abas button').forEach((b) => b.classList.toggle('ativa', b === botao));
-    for (const aba of ['turma', 'registros', 'turmas', 'convites', 'ajustes']) {
+    for (const aba of ['turma', 'registros', 'turmas', 'convites', 'integracao', 'ajustes']) {
       $(`#aba-${aba}`).classList.toggle('oculto', aba !== botao.dataset.aba);
     }
     $('#filtro-turma-cartao').classList.toggle(
@@ -583,6 +584,61 @@ async function carregarConvites() {
   desenharConvites();
 }
 
+function desenharChaves() {
+  $('#lista-chaves').innerHTML = estado.chaves.length
+    ? estado.chaves.map((c) => `<div class="item">
+        <div class="nome">${escapar(c.nome)}</div>
+        <div class="sub">
+          prefixo ${escapar(c.prefixo)} · ${c.chamadas} envio(s)
+          ${c.ultimo_uso_em ? ' · último em ' + dataBr(c.ultimo_uso_em) : ' · nunca usada'}
+        </div>
+        ${c.revogada_em
+          ? `<div class="sub" style="color:var(--erro)">Revogada em ${dataBr(c.revogada_em)}</div>`
+          : `<div class="acoes"><button class="perigo mini" data-revogar-chave="${c.id}">Revogar</button></div>`}
+      </div>`).join('')
+    : '<p class="vazio">Nenhuma chave gerada ainda.</p>';
+}
+
+$('#btn-criar-chave').onclick = async () => {
+  try {
+    const { token } = await api('/api/chaves', { metodo: 'POST', corpo: { nome: $('#nova-chave-nome').value } });
+    $('#chave-valor').textContent = token;
+    $('#chave-nova').classList.remove('oculto');
+    $('#nova-chave-nome').value = '';
+    await carregarChaves();
+  } catch (err) {
+    falhar(err);
+  }
+};
+
+$('#btn-copiar-chave').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($('#chave-valor').textContent);
+    avisar('Chave copiada.', 'ok');
+  } catch (err) {
+    falhar(err);
+  }
+};
+
+$('#lista-chaves').addEventListener('click', async (e) => {
+  const id = e.target.dataset.revogarChave;
+  if (!id) return;
+  if (!confirm('Revogar esta chave? O sistema que a usa para de enviar na hora.')) return;
+  try {
+    await api(`/api/chaves/${id}`, { metodo: 'DELETE' });
+    await carregarChaves();
+    avisar('Chave revogada.', 'ok');
+  } catch (err) {
+    falhar(err);
+  }
+});
+
+async function carregarChaves() {
+  const { chaves } = await api('/api/chaves');
+  estado.chaves = chaves;
+  desenharChaves();
+}
+
 $('#btn-salvar-perfil').onclick = async () => {
   try {
     await api('/api/eu', {
@@ -657,6 +713,7 @@ async function iniciar() {
     estado.turmas = dados.turmas || [];
     $('#aba-botao-convites').classList.toggle('oculto', !u.pode_convidar);
     await carregarProfessor();
+    await carregarChaves();
     if (u.pode_convidar) await carregarConvites();
   } else {
     const prof = dados.professor;

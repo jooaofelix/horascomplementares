@@ -44,6 +44,7 @@ export default {
         corpo,
         token,
         usuario,
+        autorizacao: request.headers.get('authorization'),
         seguro: url.protocol === 'https:',
         exigirLogin() {
           if (!usuario) throw new ErroHttp(401, 'Faça login para continuar.');

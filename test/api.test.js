@@ -547,3 +547,171 @@ test('a página inicial é servida e caminhos desconhecidos devolvem 404', async
     assert.equal((await anonimo('/nao-existe.html')).status, 404);
   });
 });
+
+// ---------------------------------------------------------------- integração
+
+async function criarChave(professor, nome = 'Sistema de Exercícios') {
+  const r = await professor('/api/chaves', { metodo: 'POST', corpo: { nome } });
+  assert.equal(r.status, 201, JSON.stringify(r.dados));
+  assert.match(r.dados.token, /^hc_[A-Z0-9]{8}_[A-Z0-9]{32}$/);
+  return r.dados.token;
+}
+
+function integracao(base, token) {
+  return async (corpo) => {
+    const resposta = await fetch(`${base}/api/integracao/atividades`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify(corpo),
+    });
+    return { status: resposta.status, dados: await resposta.json() };
+  };
+}
+
+const loteBase = (codigo, extras = {}) => ({
+  turma_codigo: codigo,
+  atividades: [{
+    origem_id: 'exerc-2026-001',
+    aluno: { email: 'ana@ex.br', matricula: '2026001', nome: 'Ana Ribeiro' },
+    titulo: 'Exercício 3 — registro cursivo',
+    categoria: 'Registro cursivo',
+    data_atividade: '2026-04-10',
+    horas: 2,
+    texto: 'Entregue pelo sistema de exercícios.',
+    ...extras,
+  }],
+});
+
+test('a importação cria o aluno que ainda não tem conta e lança as horas', async () => {
+  await comAmbiente(async ({ base }) => {
+    const professor = await criarProfessor(base);
+    const turma = await criarTurma(professor, 'Manhã', 120);
+    const enviar = integracao(base, await criarChave(professor));
+
+    const r = await enviar(loteBase(turma.codigo));
+    assert.equal(r.status, 200, JSON.stringify(r.dados));
+    assert.deepEqual(
+      { criadas: r.dados.criadas, atualizadas: r.dados.atualizadas, erros: r.dados.erros, alunos: r.dados.alunos_criados },
+      { criadas: 1, atualizadas: 0, erros: 0, alunos: 1 },
+    );
+
+    const painel = await professor('/api/turma');
+    assert.equal(painel.dados.alunos.length, 1);
+    assert.equal(painel.dados.alunos[0].nome, 'Ana Ribeiro');
+    assert.equal(painel.dados.alunos[0].declarado, 2);
+    assert.equal(painel.dados.alunos[0].pendentes, 1);
+  });
+});
+
+test('reenviar o mesmo origem_id atualiza em vez de duplicar', async () => {
+  await comAmbiente(async ({ base }) => {
+    const professor = await criarProfessor(base);
+    const turma = await criarTurma(professor, 'Manhã');
+    const enviar = integracao(base, await criarChave(professor));
+
+    await enviar(loteBase(turma.codigo));
+    const segunda = await enviar(loteBase(turma.codigo, { horas: 5, titulo: 'Exercício 3 — versão corrigida' }));
+    assert.equal(segunda.dados.criadas, 0);
+    assert.equal(segunda.dados.atualizadas, 1);
+
+    const registros = await professor('/api/atividades');
+    assert.equal(registros.dados.atividades.length, 1);
+    assert.equal(registros.dados.atividades[0].horas, 5);
+    assert.equal(registros.dados.atividades[0].titulo, 'Exercício 3 — versão corrigida');
+  });
+});
+
+test('a origem pode mandar a atividade já validada', async () => {
+  await comAmbiente(async ({ base }) => {
+    const professor = await criarProfessor(base);
+    const turma = await criarTurma(professor, 'Manhã', 100);
+    const enviar = integracao(base, await criarChave(professor));
+
+    await enviar(loteBase(turma.codigo, { validado: true, observacao: 'Corrigido automaticamente.' }));
+    const painel = await professor('/api/turma');
+    assert.equal(painel.dados.alunos[0].validado, 2);
+    assert.equal(painel.dados.alunos[0].pendentes, 0);
+  });
+});
+
+test('o aluno pré-cadastrado assume a conta e mantém as horas importadas', async () => {
+  await comAmbiente(async ({ base }) => {
+    const professor = await criarProfessor(base);
+    const turma = await criarTurma(professor, 'Manhã', 120);
+    const enviar = integracao(base, await criarChave(professor));
+    await enviar(loteBase(turma.codigo));
+
+    // Antes de assumir, a conta não entra por senha.
+    const tentativa = await cliente(base)('/api/login', {
+      metodo: 'POST',
+      corpo: { email: 'ana@ex.br', senha: 'senha123' },
+    });
+    assert.equal(tentativa.status, 401);
+    assert.match(tentativa.dados.erro, /importação/i);
+
+    const ana = await criarAluno(base, 'Ana Ribeiro', 'ana@ex.br', turma.codigo, { matricula: '2026001' });
+    const eu = await ana('/api/eu');
+    assert.equal(eu.dados.usuario.turma_nome, 'Manhã');
+    assert.equal(eu.dados.resumo.declarado, 2);
+    assert.equal(eu.dados.resumo.meta, 120);
+
+    const minhas = await ana('/api/atividades');
+    assert.equal(minhas.dados.atividades.length, 1);
+    assert.equal(minhas.dados.atividades[0].titulo, 'Exercício 3 — registro cursivo');
+  });
+});
+
+test('um item inválido não derruba o lote inteiro', async () => {
+  await comAmbiente(async ({ base }) => {
+    const professor = await criarProfessor(base);
+    const turma = await criarTurma(professor, 'Manhã');
+    const enviar = integracao(base, await criarChave(professor));
+
+    const r = await enviar({
+      turma_codigo: turma.codigo,
+      atividades: [
+        loteBase(turma.codigo).atividades[0],
+        { origem_id: 'ruim-1', aluno: { email: 'bruno@ex.br' }, titulo: 'Sem horas', categoria: 'Outro', data_atividade: '2026-04-10', horas: 0 },
+        { origem_id: 'ruim-2', aluno: {}, titulo: 'Sem aluno', categoria: 'Outro', data_atividade: '2026-04-10', horas: 1 },
+      ],
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.dados.criadas, 1);
+    assert.equal(r.dados.erros, 2);
+    assert.equal(r.dados.resultados[1].status, 'erro');
+    assert.match(r.dados.resultados[1].motivo, /horas/i);
+    assert.match(r.dados.resultados[2].motivo, /e-mail ou a matrícula/i);
+  });
+});
+
+test('chave inválida, revogada ou de outro professor não importa nada', async () => {
+  await comAmbiente(async ({ base }) => {
+    const marina = await criarProfessor(base);
+    const carlos = await criarProfessorConvidado(base, marina, 'Prof. Carlos', 'carlos@exemplo.br');
+    const turmaMarina = await criarTurma(marina, 'Marina', 120);
+    const chaveCarlos = await criarChave(carlos, 'Sistema do Carlos');
+
+    assert.equal((await integracao(base, 'hc_XXXXXXXX_YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY')(loteBase(turmaMarina.codigo))).status, 401);
+    assert.equal((await integracao(base, 'lixo')(loteBase(turmaMarina.codigo))).status, 401);
+
+    // A chave é válida, mas a turma é de outro professor.
+    const alheia = await integracao(base, chaveCarlos)(loteBase(turmaMarina.codigo));
+    assert.equal(alheia.status, 404);
+
+    const chaveMarina = await criarChave(marina);
+    const lista = await marina('/api/chaves');
+    assert.equal(lista.dados.chaves.length, 1);
+    assert.equal((await marina(`/api/chaves/${lista.dados.chaves[0].id}`, { metodo: 'DELETE' })).status, 200);
+    assert.equal((await integracao(base, chaveMarina)(loteBase(turmaMarina.codigo))).status, 401);
+  });
+});
+
+test('aluno não cria chaves de integração', async () => {
+  await comAmbiente(async ({ base }) => {
+    const professor = await criarProfessor(base);
+    const turma = await criarTurma(professor, 'Manhã');
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', turma.codigo);
+    assert.equal((await ana('/api/chaves')).status, 403);
+    assert.equal((await ana('/api/chaves', { metodo: 'POST', corpo: { nome: 'X' } })).status, 403);
+  });
+});

@@ -232,6 +232,7 @@
       <button data-aba="registros">Validar <span id="contador-pendentes"></span></button>
       <button data-aba="turmas">Turmas</button>
       <button data-aba="convites" class="oculto" id="aba-botao-convites">Convites</button>
+      <button data-aba="integracao">Integração</button>
       <button data-aba="ajustes">Meus dados</button>
     </div>
 
@@ -298,6 +299,32 @@
         <button id="btn-criar-convite">Gerar convite</button>
       </div>
       <div class="grade" id="lista-convites"></div>
+    </div>
+
+    <div id="aba-integracao" class="oculto">
+      <div class="cartao">
+        <h2>Receber horas de outro sistema</h2>
+        <p class="explicacao">
+          Gere uma chave para o sistema que vai enviar as atividades já apuradas (exercícios,
+          eventos, monitoria). Ele envia, os alunos aparecem aqui e você valida como sempre.
+        </p>
+        <div class="campo">
+          <label for="nova-chave-nome">Nome do sistema</label>
+          <input id="nova-chave-nome" maxlength="80" placeholder="Ex.: Portal de Exercícios">
+        </div>
+        <button id="btn-criar-chave">Gerar chave</button>
+        <div id="chave-nova" class="oculto" style="margin-top:18px">
+          <div class="observacao">
+            <strong>Guarde agora:</strong> a chave aparece uma única vez. Depois só é possível revogar
+            e gerar outra.
+          </div>
+          <div class="codigo-turma" style="margin-top:12px">
+            <span class="valor" id="chave-valor" style="font-size:14px;word-break:break-all"></span>
+            <button class="secundario mini" id="btn-copiar-chave">Copiar</button>
+          </div>
+        </div>
+      </div>
+      <div class="grade" id="lista-chaves"></div>
     </div>
 
     <div id="aba-ajustes" class="cartao oculto">

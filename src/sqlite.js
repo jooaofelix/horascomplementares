@@ -26,6 +26,9 @@ const COLUNAS_NOVAS = [
   ['usuarios', 'matricula', 'TEXT'],
   ['usuarios', 'instituicao', 'TEXT'],
   ['usuarios', 'pode_convidar', 'INTEGER NOT NULL DEFAULT 0'],
+  ['usuarios', 'pre_cadastrado', 'INTEGER NOT NULL DEFAULT 0'],
+  ['atividades', 'origem', 'TEXT'],
+  ['atividades', 'origem_id', 'TEXT'],
   ['turmas', 'professor_id', 'INTEGER REFERENCES usuarios(id) ON DELETE SET NULL'],
   ['turmas', 'codigo', 'TEXT'],
   ['atividades', 'local', 'TEXT'],
@@ -50,6 +53,9 @@ function garantirColunas(db) {
     CREATE INDEX IF NOT EXISTS idx_usuarios_turma ON usuarios(turma_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_turmas_codigo ON turmas(codigo);
     CREATE INDEX IF NOT EXISTS idx_turmas_professor ON turmas(professor_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_atividades_origem
+      ON atividades(origem, origem_id) WHERE origem_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_chaves_professor ON chaves_api(professor_id);
 
     -- Sem ninguém podendo convidar, o primeiro professor recebe a permissão.
     UPDATE usuarios

@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   matricula   TEXT,
   instituicao TEXT,
   pode_convidar INTEGER NOT NULL DEFAULT 0,
+  pre_cadastrado INTEGER NOT NULL DEFAULT 0,
   criado_em  TEXT NOT NULL
 );
 
@@ -36,6 +37,8 @@ CREATE TABLE IF NOT EXISTS atividades (
   comprovante    TEXT,
   texto          TEXT NOT NULL DEFAULT '',
   arquivo_nome   TEXT,
+  origem         TEXT,
+  origem_id      TEXT,
   validado       INTEGER NOT NULL DEFAULT 0,
   validado_por   INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
   validado_em    TEXT,
@@ -51,6 +54,18 @@ CREATE TABLE IF NOT EXISTS sessoes (
   usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
   criado_em  TEXT NOT NULL,
   expira_em  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chaves_api (
+  id            INTEGER PRIMARY KEY,
+  nome          TEXT NOT NULL,
+  prefixo       TEXT NOT NULL UNIQUE,
+  segredo_hash  TEXT NOT NULL,
+  professor_id  INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  criada_em     TEXT NOT NULL,
+  ultimo_uso_em TEXT,
+  chamadas      INTEGER NOT NULL DEFAULT 0,
+  revogada_em   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS convites (

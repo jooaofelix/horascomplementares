@@ -10,11 +10,14 @@ import {
   criarSessao,
   encerrarSessao,
   cookieDeSessao,
+  sha256Hex,
+  comparaTexto,
   ITERACOES_PADRAO,
 } from './auth.js';
 
 const LIMITE_TEXTO = 200_000;
 const META_PADRAO = 200;
+const LIMITE_LOTE = 200;
 
 export const CATEGORIAS = [
   'Observação em campo',
@@ -138,6 +141,38 @@ async function turmaPorCodigo(bd, codigo) {
   return turma;
 }
 
+// ---------- chaves de integração ----------
+
+// Formato: hc_<prefixo>_<segredo>. O prefixo viaja em claro e localiza a linha;
+// o token inteiro é guardado como hash, então o banco não devolve a chave.
+async function criarChave(bd, professorId, nome) {
+  const sortear = (n) =>
+    Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => ALFABETO[b % ALFABETO.length]).join('');
+  const prefixo = sortear(8);
+  const token = `hc_${prefixo}_${sortear(32)}`;
+  await bd.run(
+    'INSERT INTO chaves_api(nome, prefixo, segredo_hash, professor_id, criada_em) VALUES(?, ?, ?, ?, ?)',
+    nome, prefixo, await sha256Hex(token), professorId, new Date().toISOString(),
+  );
+  return { token, prefixo };
+}
+
+async function professorDaChave(bd, autorizacao) {
+  const token = String(autorizacao || '').replace(/^Bearer\s+/i, '').trim();
+  const partes = /^hc_([A-Z0-9]{8})_([A-Z0-9]{32})$/.exec(token);
+  if (!partes) throw erro(401, 'Envie a chave de integração no cabeçalho Authorization: Bearer hc_...');
+
+  const chave = await bd.get('SELECT * FROM chaves_api WHERE prefixo = ?', partes[1]);
+  if (!chave || chave.revogada_em || !comparaTexto(await sha256Hex(token), chave.segredo_hash)) {
+    throw erro(401, 'Chave de integração inválida ou revogada.');
+  }
+  await bd.run(
+    'UPDATE chaves_api SET ultimo_uso_em = ?, chamadas = chamadas + 1 WHERE id = ?',
+    new Date().toISOString(), chave.id,
+  );
+  return chave;
+}
+
 // ---------- consultas ----------
 
 const COLUNAS_ATIVIDADE = `a.id, a.usuario_id, a.titulo, a.categoria, a.local, a.responsavel,
@@ -234,6 +269,95 @@ function paraCsv(linhas) {
   return '﻿' + [cabecalho.join(';'), ...corpo].join('\r\n') + '\r\n';
 }
 
+// ---------- importação ----------
+
+// Acha o aluno pelo e-mail (ou pela matrícula dentro da turma) e, se ele ainda
+// não existe, cria pré-cadastrado: sem senha, já dentro da turma. A conta é
+// assumida depois, quando a pessoa se cadastrar com o mesmo e-mail.
+async function resolverAluno(bd, turma, dados) {
+  const email = texto(dados.email, 'o e-mail do aluno', { obrigatorio: false, max: 160 }).toLowerCase();
+  const matricula = texto(dados.matricula, 'a matrícula', { obrigatorio: false, max: 40 }) || null;
+  const nome = texto(dados.nome, 'o nome do aluno', { obrigatorio: false, max: 120 }) || null;
+
+  if (!email && !matricula) throw erro(400, 'Informe o e-mail ou a matrícula do aluno.');
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw erro(400, `E-mail inválido: ${email}`);
+
+  const achado = email
+    ? await bd.get('SELECT * FROM usuarios WHERE email = ?', email)
+    : await bd.get(
+        "SELECT * FROM usuarios WHERE matricula = ? AND turma_id = ? AND papel = 'aluno'",
+        matricula, turma.id,
+      );
+
+  if (achado) {
+    if (achado.papel !== 'aluno') throw erro(409, `${achado.email} é uma conta de professor.`);
+    if (achado.turma_id !== turma.id) {
+      const dono = await bd.get('SELECT professor_id FROM turmas WHERE id = ?', achado.turma_id);
+      if (dono && dono.professor_id !== turma.professor_id) {
+        throw erro(409, `${achado.email || matricula} está numa turma de outro professor.`);
+      }
+    }
+    // Completa o que faltava sem sobrescrever o que o aluno já preencheu.
+    await bd.run(
+      `UPDATE usuarios
+          SET matricula = COALESCE(matricula, ?), nome = CASE WHEN pre_cadastrado = 1 THEN COALESCE(?, nome) ELSE nome END
+        WHERE id = ?`,
+      matricula, nome, achado.id,
+    );
+    return { id: achado.id, criado: false };
+  }
+
+  if (!email) throw erro(404, `Aluno com matrícula ${matricula} não encontrado nesta turma. Envie o e-mail para criá-lo.`);
+  const { ultimoId } = await bd.run(
+    `INSERT INTO usuarios(nome, email, senha_hash, papel, turma_id, matricula, pre_cadastrado, criado_em)
+     VALUES(?, ?, '', 'aluno', ?, ?, 1, ?)`,
+    nome || email, email, turma.id, matricula, new Date().toISOString(),
+  );
+  return { id: ultimoId, criado: true };
+}
+
+async function importarAtividade(bd, chave, turma, item) {
+  const origemId = texto(item.origem_id, 'o origem_id', { obrigatorio: false, max: 120 }) || null;
+  const aluno = await resolverAluno(bd, turma, item.aluno || {});
+  const d = validarAtividade(item);
+  const agora = new Date().toISOString();
+
+  const existente = origemId
+    ? await bd.get('SELECT * FROM atividades WHERE origem = ? AND origem_id = ?', chave.nome, origemId)
+    : null;
+
+  const validado = item.validado ? 1 : 0;
+  const observacao = texto(item.observacao, 'a observação', { obrigatorio: false, max: 2000 }) || null;
+
+  if (existente) {
+    await bd.run(
+      `UPDATE atividades
+          SET usuario_id = ?, titulo = ?, categoria = ?, local = ?, responsavel = ?,
+              data_atividade = ?, data_fim = ?, horas = ?, comprovante = ?, texto = ?,
+              validado = ?, validado_por = ?, validado_em = ?, observacao = ?, atualizado_em = ?
+        WHERE id = ?`,
+      aluno.id, d.titulo, d.categoria, d.local, d.responsavel, d.data_atividade, d.data_fim,
+      d.horas, d.comprovante, d.texto,
+      validado, validado ? chave.professor_id : null, validado ? agora : null, observacao,
+      agora, existente.id,
+    );
+    return { status: 'atualizada', atividade_id: existente.id, aluno_criado: aluno.criado };
+  }
+
+  const { ultimoId } = await bd.run(
+    `INSERT INTO atividades
+       (usuario_id, titulo, categoria, local, responsavel, data_atividade, data_fim, horas,
+        comprovante, texto, origem, origem_id, validado, validado_por, validado_em, observacao,
+        criado_em, atualizado_em)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    aluno.id, d.titulo, d.categoria, d.local, d.responsavel, d.data_atividade, d.data_fim, d.horas,
+    d.comprovante, d.texto, chave.nome, origemId,
+    validado, validado ? chave.professor_id : null, validado ? agora : null, observacao,
+    agora, agora,
+  );
+  return { status: 'criada', atividade_id: ultimoId, aluno_criado: aluno.criado };
+}
+
 // ---------- rotas ----------
 
 export function criarRotas(bd, opcoes = {}) {
@@ -277,7 +401,24 @@ export function criarRotas(bd, opcoes = {}) {
           : null;
       const matricula = texto(ctx.corpo.matricula, 'a matrícula', { obrigatorio: false, max: 40 }) || null;
 
-      if (await bd.get('SELECT 1 AS existe FROM usuarios WHERE email = ?', email)) {
+      const existente = await bd.get('SELECT * FROM usuarios WHERE email = ?', email);
+      if (existente) {
+        // Aluno que a integração criou antes: a pessoa assume a conta agora,
+        // e as horas já importadas continuam com ela.
+        if (papel === 'aluno' && existente.pre_cadastrado) {
+          await bd.run(
+            `UPDATE usuarios
+                SET nome = ?, senha_hash = ?, turma_id = ?, matricula = COALESCE(?, matricula),
+                    pre_cadastrado = 0
+              WHERE id = ?`,
+            nome, await gerarHash(senha, iteracoesSenha), turmaId, matricula, existente.id,
+          );
+          const sessao = await criarSessao(bd, existente.id);
+          return {
+            corpo: { usuario: { id: existente.id, nome, email, papel }, conta_assumida: true },
+            cabecalhos: { 'Set-Cookie': cookieDeSessao(sessao.token, sessao.expira, ctx.seguro) },
+          };
+        }
         throw erro(409, 'Esse e-mail já está cadastrado. Use "Entrar" ou outro e-mail.');
       }
 
@@ -304,6 +445,9 @@ export function criarRotas(bd, opcoes = {}) {
       const email = texto(ctx.corpo.email, 'seu e-mail', { max: 160 }).toLowerCase();
       const senha = typeof ctx.corpo.senha === 'string' ? ctx.corpo.senha : '';
       const usuario = await bd.get('SELECT * FROM usuarios WHERE email = ?', email);
+      if (usuario && usuario.pre_cadastrado) {
+        throw erro(401, 'Sua conta foi criada pela importação e ainda não tem senha. Use "Criar conta" com este mesmo e-mail.');
+      }
       if (!usuario || !(await conferirSenha(senha, usuario.senha_hash))) {
         throw erro(401, 'E-mail ou senha incorretos.');
       }
@@ -561,6 +705,77 @@ export function criarRotas(bd, opcoes = {}) {
         meta: l.meta_horas === null || l.meta_horas === undefined ? META_PADRAO : Number(l.meta_horas),
       }));
       return { corpo: { alunos, turmas: await turmasDoProfessor(bd, professor.id) } };
+    }],
+
+    ['GET', /^\/api\/chaves$/, async (ctx) => {
+      const professor = exigirProfessor(ctx.exigirLogin());
+      const chaves = await bd.all(
+        `SELECT id, nome, prefixo, criada_em, ultimo_uso_em, chamadas, revogada_em
+           FROM chaves_api WHERE professor_id = ? ORDER BY id DESC`,
+        professor.id,
+      );
+      return { corpo: { chaves } };
+    }],
+
+    ['POST', /^\/api\/chaves$/, async (ctx) => {
+      const professor = exigirProfessor(ctx.exigirLogin());
+      const nome = texto(ctx.corpo.nome, 'o nome do sistema que vai enviar os dados', { max: 80 });
+      const { token, prefixo } = await criarChave(bd, professor.id, nome);
+      // O token só aparece aqui: depois disso o banco tem apenas o hash.
+      return { status: 201, corpo: { token, prefixo, nome } };
+    }],
+
+    ['DELETE', /^\/api\/chaves\/(\d+)$/, async (ctx) => {
+      const professor = exigirProfessor(ctx.exigirLogin());
+      const id = Number(ctx.parametros[0]);
+      const chave = await bd.get('SELECT * FROM chaves_api WHERE id = ? AND professor_id = ?', id, professor.id);
+      if (!chave) throw erro(404, 'Chave não encontrada.');
+      await bd.run('UPDATE chaves_api SET revogada_em = ? WHERE id = ?', new Date().toISOString(), id);
+      return { corpo: { ok: true } };
+    }],
+
+    // Entrada de máquina: outro sistema envia as horas já apuradas.
+    ['POST', /^\/api\/integracao\/atividades$/, async (ctx) => {
+      const chave = await professorDaChave(bd, ctx.autorizacao);
+      const codigo = normalizarCodigo(ctx.corpo.turma_codigo);
+      if (!codigo) throw erro(400, 'Informe turma_codigo.');
+      const turma = await bd.get(
+        'SELECT * FROM turmas WHERE codigo = ? AND professor_id = ?',
+        codigo, chave.professor_id,
+      );
+      if (!turma) throw erro(404, 'Turma não encontrada para esta chave.');
+
+      const itens = Array.isArray(ctx.corpo.atividades) ? ctx.corpo.atividades : null;
+      if (!itens || itens.length === 0) throw erro(400, 'Envie ao menos uma atividade em "atividades".');
+      if (itens.length > LIMITE_LOTE) throw erro(413, `Máximo de ${LIMITE_LOTE} atividades por chamada.`);
+
+      // Um item inválido não derruba o lote: cada linha volta com o seu resultado.
+      const resultados = [];
+      for (const [indice, item] of itens.entries()) {
+        try {
+          resultados.push({
+            indice,
+            origem_id: item?.origem_id ?? null,
+            ...(await importarAtividade(bd, chave, turma, item ?? {})),
+          });
+        } catch (e) {
+          if (!(e instanceof ErroHttp)) throw e;
+          resultados.push({ indice, origem_id: item?.origem_id ?? null, status: 'erro', motivo: e.message });
+        }
+      }
+
+      const conta = (status) => resultados.filter((r) => r.status === status).length;
+      return {
+        corpo: {
+          turma: { id: turma.id, nome: turma.nome },
+          recebidas: itens.length,
+          criadas: conta('criada'),
+          atualizadas: conta('atualizada'),
+          erros: conta('erro'),
+          alunos_criados: resultados.filter((r) => r.aluno_criado).length,
+          resultados,
+        },
+      };
     }],
 
     ['GET', /^\/api\/exportar\.csv$/, async (ctx) => {

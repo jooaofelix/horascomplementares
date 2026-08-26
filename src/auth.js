@@ -48,6 +48,16 @@ export async function conferirSenha(senha, hashArmazenado) {
   return comparacaoConstante(tentativa, guardada);
 }
 
+// Hash rápido para chaves de API: elas já nascem com entropia alta, então não
+// precisam do custo do PBKDF2 (que também estouraria a CPU a cada chamada).
+export async function sha256Hex(texto) {
+  const bits = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(texto));
+  return bytesParaHex(new Uint8Array(bits));
+}
+
+export const comparaTexto = (a, b) =>
+  comparacaoConstante(new TextEncoder().encode(String(a)), new TextEncoder().encode(String(b)));
+
 // Comparação em tempo constante: crypto.timingSafeEqual não existe no Workers.
 function comparacaoConstante(a, b) {
   if (a.length !== b.length) return false;

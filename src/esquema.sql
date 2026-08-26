@@ -252,6 +252,7 @@ CREATE TABLE IF NOT EXISTS tarefas (
   enunciado       TEXT,
   prazo           TEXT,
   horas_sugeridas REAL,
+  nota_maxima     REAL,
   categoria_id    INTEGER REFERENCES categorias(id) ON DELETE SET NULL,
   publicada       INTEGER NOT NULL DEFAULT 1,
   criada_por      INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
@@ -261,6 +262,7 @@ CREATE TABLE IF NOT EXISTS tarefas (
 
 CREATE TABLE IF NOT EXISTS entregas (
   id            INTEGER PRIMARY KEY,
+  nota          REAL,
   tarefa_id     INTEGER NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
   aluno_id      INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
   texto         TEXT NOT NULL DEFAULT '',

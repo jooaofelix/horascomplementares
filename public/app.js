@@ -28,6 +28,7 @@ const estado = {
   usuarios: [],
   materias: [],
   minhasMaterias: [],
+  entregasACorrigir: 0,
   turmaFiltro: '',
   materiaFiltro: '',
   limiteArquivo: 0,
@@ -485,19 +486,26 @@ async function lerArquivo(arquivo) {
 
 // ---------------------------------------------------------------- professor
 
+// Mostrar a aba é o mesmo trabalho no clique e na abertura da tela — se fosse
+// só no clique, quem acabou de entrar veria a aba marcada e o painel de outra.
+function mostrarAba(qual) {
+  const aba = typeof qual === 'string' ? qual : qual?.dataset.aba;
+  if (!aba) return;
+  $$('#abas-professor button').forEach((b) => b.classList.toggle('ativa', b.dataset.aba === aba));
+  // Só as abas do dia a dia: cursos, pessoas, convites e integração agora
+  // vivem na tela de configurações e não são tocadas aqui.
+  for (const nome of ['aulas', 'turma', 'registros', 'turmas']) {
+    $(`#aba-${nome}`).classList.toggle('oculto', nome !== aba);
+  }
+  $('#filtro-turma-cartao').classList.toggle(
+    'oculto',
+    !['turma', 'registros', 'aulas'].includes(aba) || estado.materias.length < 2,
+  );
+}
+
 $$('#abas-professor button').forEach((botao) => {
   botao.onclick = () => {
-    $$('#abas-professor button').forEach((b) => b.classList.toggle('ativa', b === botao));
-    // Só as abas do dia a dia: cursos, pessoas, convites e integração agora
-    // vivem na tela de configurações e não são tocadas aqui.
-    for (const aba of ['aulas', 'turma', 'registros', 'turmas']) {
-      $(`#aba-${aba}`).classList.toggle('oculto', aba !== botao.dataset.aba);
-    }
-    $('#filtro-turma-cartao').classList.toggle(
-      'oculto',
-      !['turma', 'registros', 'aulas'].includes(botao.dataset.aba) || estado.materias.length < 2,
-    );
-
+    mostrarAba(botao);
     // Trocar de aba busca o estado atual: um aluno pode ter entrado na turma
     // enquanto a página estava aberta.
     if (['turma', 'registros', 'aulas'].includes(botao.dataset.aba)) {
@@ -517,16 +525,13 @@ $('#filtro-turma').addEventListener('change', async (e) => {
 function desenharResumoProfessor() {
   const alunos = estado.alunos;
   const aValidar = alunos.reduce((total, a) => total + a.pendentes, 0);
-  const aCorrigir = estado.mural
-    ? [...estado.mural.aulas.flatMap((a) => a.tarefas), ...estado.mural.avulsos.tarefas]
-        .reduce((total, t) => total + (t.a_avaliar || 0), 0)
-    : 0;
+  const aCorrigir = estado.entregasACorrigir;
   const comHoras = estado.materias.some((m) => m.conta_horas);
 
   const pecas = [
-    ['var(--alunos)', alunos.length, alunos.length === 1 ? 'aluno na seleção' : 'alunos na seleção'],
+    ['var(--alunos)', alunos.length, alunos.length === 1 ? 'aluno' : 'alunos'],
     ['var(--aulas)', aCorrigir, aCorrigir === 1 ? 'entrega a corrigir' : 'entregas a corrigir'],
-    comHoras ? ['var(--horas)', aValidar, aValidar === 1 ? 'hora a validar' : 'horas a validar'] : null,
+    comHoras ? ['var(--horas)', aValidar, aValidar === 1 ? 'lançamento a validar' : 'lançamentos a validar'] : null,
   ].filter(Boolean);
 
   $('#resumo-professor').innerHTML = pecas
@@ -563,7 +568,8 @@ function desenharAlunos() {
           </details>
         </div>`;
       }).join('')
-    : '<p class="vazio">Nenhum aluno entrou nas suas turmas ainda. Passe o código da turma para eles.</p>';
+    : `<p class="vazio">Nenhum aluno entrou ainda. Abra a aba <strong>Turmas</strong>, toque em
+         <strong>Copiar convite</strong> e cole no grupo da turma: o código é o que abre a porta.</p>`;
 }
 
 async function mostrarAnotacoes(alunoId, alvo) {
@@ -674,6 +680,7 @@ $('#filtro-status-prof').addEventListener('change', desenharListaProfessor);
 // ---- turmas ----
 
 function desenharTurmas() {
+  $('#form-nova-turma').open = !estado.turmas.length;
   $('#lista-turmas').innerHTML = estado.turmas.length
     ? estado.turmas.map((t) => `<div class="item" data-area="turmas">
         <div class="nome">${escapar(t.nome)}</div>
@@ -688,17 +695,18 @@ function desenharTurmas() {
           ${(t.materias || []).length
             ? t.materias.map((m) => materiaEditavel(m)).join('')
             : '<p class="vazio">Nenhuma matéria ainda.</p>'}
-          <div class="linha" style="margin-top:12px">
+          <details class="dobra fina">
+            <summary><span class="mais">+</span> Adicionar uma matéria minha</summary>
             <div class="campo">
-              <label>Nova matéria nesta turma</label>
+              <label>Nome da matéria</label>
               <input data-nova-materia="${t.id}" maxlength="120" placeholder="Ex.: Psicologia Social">
             </div>
-          </div>
-          <label class="opcao-turma" style="margin-bottom:10px">
-            <input type="checkbox" data-nova-materia-conta="${t.id}">
-            <span>Gera horas complementares</span>
-          </label>
-          <button class="secundario mini" data-add-materia="${t.id}">Adicionar matéria</button>
+            <label class="opcao-turma" style="margin-bottom:10px">
+              <input type="checkbox" data-nova-materia-conta="${t.id}">
+              <span>Gera horas complementares <span class="sub">— estágio, extensão, monitoria</span></span>
+            </label>
+            <button class="secundario mini" data-add-materia="${t.id}">Adicionar matéria</button>
+          </details>
         </div>
 
         ${t.posso_editar ? `<div class="bloco">
@@ -714,14 +722,21 @@ function desenharTurmas() {
           </div>
         </div>` : `<p class="sub">Turma de ${escapar(t.professor_nome || 'outro professor')} — você cuida da sua matéria nela.</p>`}
       </div>`).join('')
-    : '<p class="vazio">Você ainda não tem turmas. Crie a primeira acima.</p>';
+    : '<p class="vazio">Nenhuma turma ainda. Crie a primeira acima — leva um minuto.</p>';
 }
 
-// A matéria do colega aparece, mas só quem dá ela é que edita.
-const materiaEditavel = (m) => m.posso_editar
-  ? `<div class="materia">
-      <div class="linha">
-        <div class="campo"><label>Matéria</label><input data-materia-nome="${m.id}" value="${escapar(m.nome)}"></div>
+// A matéria do colega aparece na lista, mas só quem dá ela é que edita.
+const materiaEditavel = (m) => `<div class="materia${m.posso_editar ? '' : ' de-colega'}">
+    <div class="cabecalho">
+      <span class="titulo">${escapar(m.nome)}</span>
+      ${m.conta_horas ? '<span class="selo ok">gera horas</span>' : ''}
+    </div>
+    <div class="sub">${escapar(m.professor_nome || 'sem professor')}</div>
+    ${m.posso_editar ? `<details class="dobra fina discreta">
+      <summary>Editar matéria</summary>
+      <div class="campo">
+        <label>Nome da matéria</label>
+        <input data-materia-nome="${m.id}" value="${escapar(m.nome)}">
       </div>
       <label class="opcao-turma" style="margin-bottom:10px">
         <input type="checkbox" data-materia-conta="${m.id}" ${m.conta_horas ? 'checked' : ''}>
@@ -731,14 +746,8 @@ const materiaEditavel = (m) => m.posso_editar
         <button class="secundario mini" data-salvar-materia="${m.id}">Salvar matéria</button>
         <button class="perigo mini" data-excluir-materia="${m.id}">Excluir</button>
       </div>
-    </div>`
-  : `<div class="materia de-colega">
-      <div class="nome">${escapar(m.nome)}</div>
-      <div class="sub">
-        ${escapar(m.professor_nome || 'sem professor')}
-        ${m.conta_horas ? '· <span style="color:var(--horas);font-weight:600">gera horas</span>' : ''}
-      </div>
-    </div>`;
+    </details>` : ''}
+  </div>`;
 
 $('#btn-criar-turma').onclick = async () => {
   try {
@@ -1218,6 +1227,19 @@ function lerParaEnvio(input) {
 
 const prazoTexto = (prazo) => (prazo ? `entrega até ${dataBr(prazo)}` : 'sem prazo');
 
+const numero = (n) => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+
+// A tarefa vale hora complementar (estágio, extensão) ou nota (disciplina).
+const valorTarefa = (t) =>
+  t.nota_maxima ? `vale nota até ${numero(t.nota_maxima)}`
+  : t.horas_sugeridas ? `vale ${horas(t.horas_sugeridas)}`
+  : '';
+
+const notaDaEntrega = (e, t = {}) =>
+  e?.nota !== null && e?.nota !== undefined
+    ? `nota ${numero(e.nota)}${t.nota_maxima ? ` de ${numero(t.nota_maxima)}` : ''}`
+    : '';
+
 const SELO_ENTREGA = {
   enviada: '<span class="selo esperando">aguardando avaliação</span>',
   devolvida: '<span class="selo esperando">devolvida para correção</span>',
@@ -1246,12 +1268,15 @@ function blocoTarefaAluno(t, materiaNome = '') {
       ${entrega ? SELO_ENTREGA[entrega.status] : '<span class="selo esperando">a entregar</span>'}
     </div>
     <div class="sub">
-      ${materiaNome ? escapar(materiaNome) + ' · ' : ''}${prazoTexto(t.prazo)}${t.horas_sugeridas ? ' · vale ' + horas(t.horas_sugeridas) : ''}
+      ${[materiaNome && escapar(materiaNome), prazoTexto(t.prazo), valorTarefa(t)].filter(Boolean).join(' · ')}
     </div>
     ${t.enunciado ? `<p style="margin:10px 0 0">${escapar(t.enunciado)}</p>` : ''}
     ${entrega?.observacao ? `<div class="observacao"><strong>Professor:</strong> ${escapar(entrega.observacao)}</div>` : ''}
     ${entrega?.status === 'aceita'
-      ? `<p class="sub" style="margin-top:10px">Suas ${horas(entrega.horas || 0)} já entraram como horas validadas.</p>`
+      ? `<p class="sub" style="margin-top:10px">${
+          notaDaEntrega(entrega, t)
+            ? 'Corrigida: <strong>' + notaDaEntrega(entrega, t) + '</strong>.'
+            : `Suas ${horas(entrega.horas || 0)} já entraram como horas validadas.`}</p>`
       : `<div style="margin-top:12px">
            <textarea data-entrega-texto="${t.id}" placeholder="Escreva sua resposta aqui">${escapar(entrega?.texto || '')}</textarea>
            <div class="campo" style="margin-top:10px">
@@ -1348,7 +1373,7 @@ function blocoTarefaProfessor(t) {
       ${t.a_avaliar > 0 ? `<span class="selo esperando">${t.a_avaliar} a avaliar</span>` : ''}
       ${t.publicada ? '' : '<span class="selo esperando">rascunho</span>'}
     </div>
-    <div class="sub">${prazoTexto(t.prazo)} · ${t.entregas} entrega(s)${t.horas_sugeridas ? ' · ' + horas(t.horas_sugeridas) : ''}</div>
+    <div class="sub">${[prazoTexto(t.prazo), `${t.entregas} entrega(s)`, valorTarefa(t)].filter(Boolean).join(' · ')}</div>
     <div class="acoes" style="margin-top:10px">
       <button class="secundario mini" data-ver-entregas="${t.id}">Ver entregas</button>
       <button class="perigo mini" data-remover-tarefa="${t.id}">Excluir</button>
@@ -1375,13 +1400,25 @@ const materiasMarcadas = () =>
 
 function desenharMuralProfessor() {
   const mural = estado.mural;
+  // Sem matéria nenhuma, o próximo passo é criar a turma — a tela diz isso em
+  // vez de mostrar um mural vazio.
   if (!mural) {
-    $('#mural-professor').innerHTML =
-      '<div class="cartao"><p class="vazio">Escolha uma matéria para ver as aulas.</p></div>';
+    $('#mural-professor').innerHTML = `<div class="cartao" data-area="turmas">
+      <span class="etiqueta">Primeiro passo</span>
+      <h2>Crie a sua turma</h2>
+      <p class="explicacao">
+        Vá na aba <strong>Turmas</strong> e crie a turma com a sua matéria. Você recebe um código de
+        6 letras para passar aos alunos — é com ele que eles entram. Depois volte aqui para publicar
+        a primeira aula.
+      </p>
+    </div>`;
+    $('#form-nova-aula').open = false;
     return;
   }
   const categorias = estado.categorias.filter((c) => c.ativa)
     .map((c) => `<option value="${c.id}">${escapar(c.nome)}</option>`).join('');
+  // Matéria de estágio avalia em horas complementares; disciplina, em nota.
+  const comHoras = !!mural.materia?.conta_horas;
 
   const bloco = (titulo, sub, aulaId, materiais, tarefas, descricao, publicada, turmasDaAula = '') => `
     <div class="cartao">
@@ -1421,14 +1458,21 @@ function desenharMuralProfessor() {
         </div>
         <div class="linha">
           <div class="campo"><label>Prazo</label><input type="date" data-tar-prazo="${aulaId}"></div>
-          <div class="campo"><label>Vale quantas horas</label>
-            <input type="number" min="0" step="0.5" inputmode="decimal" data-tar-horas="${aulaId}" placeholder="4"></div>
-          <div class="campo"><label>Categoria</label>
-            <select data-tar-categoria="${aulaId}"><option value="">Sem categoria</option>${categorias}</select></div>
+          ${comHoras
+            ? `<div class="campo"><label>Vale quantas horas</label>
+                 <input type="number" min="0" step="0.5" inputmode="decimal" data-tar-horas="${aulaId}" placeholder="4"></div>
+               <div class="campo"><label>Categoria da hora</label>
+                 <select data-tar-categoria="${aulaId}"><option value="">Sem categoria</option>${categorias}</select></div>`
+            : `<div class="campo"><label>Vale nota até</label>
+                 <input type="number" min="0" step="0.5" inputmode="decimal" data-tar-nota="${aulaId}" placeholder="10"></div>`}
         </div>
         <button class="secundario mini" data-add-tarefa="${aulaId}">Criar tarefa</button>
       </details>
     </div>`;
+
+  // Matéria ainda sem nada dentro: o formulário já abre, para não deixar o
+  // professor procurando por onde começar.
+  $('#form-nova-aula').open = !mural.aulas.length;
 
   $('#mural-professor').innerHTML = [
     `<div class="bloco"><h2>${escapar(mural.materia?.nome || 'Matéria')}</h2>
@@ -1521,8 +1565,9 @@ $('#mural-professor').addEventListener('click', async (e) => {
           titulo: $(`[data-tar-titulo="${chave}"]`).value,
           enunciado: $(`[data-tar-enunciado="${chave}"]`).value,
           prazo: $(`[data-tar-prazo="${chave}"]`).value,
-          horas_sugeridas: $(`[data-tar-horas="${chave}"]`).value,
-          categoria_id: $(`[data-tar-categoria="${chave}"]`).value || null,
+          horas_sugeridas: $(`[data-tar-horas="${chave}"]`)?.value,
+          nota_maxima: $(`[data-tar-nota="${chave}"]`)?.value,
+          categoria_id: $(`[data-tar-categoria="${chave}"]`)?.value || null,
         },
       });
       await carregarMuralProfessor();
@@ -1541,7 +1586,7 @@ $('#mural-professor').addEventListener('click', async (e) => {
     }
 
     if (d.verEntregas) {
-      const { entregas, sem_entregar: semEntregar } = await api(`/api/tarefas/${d.verEntregas}/entregas`);
+      const { entregas, sem_entregar: semEntregar, tarefa } = await api(`/api/tarefas/${d.verEntregas}/entregas`);
       $(`[data-entregas-de="${d.verEntregas}"]`).innerHTML = `
         <div style="margin-top:12px">
           ${entregas.length ? entregas.map((en) => `
@@ -1555,10 +1600,15 @@ $('#mural-professor').addEventListener('click', async (e) => {
               ${en.arquivo_id ? `<div class="sub" style="margin-top:8px">
                   <a href="/api/arquivos/${en.arquivo_id}" target="_blank" rel="noopener">${escapar(en.arquivo_nome)}</a>
                 </div>` : ''}
-              ${en.status === 'aceita' ? `<div class="sub">${horas(en.horas || 0)} lançadas como horas validadas</div>` : ''}
+              ${en.status === 'aceita'
+                ? `<div class="sub">${notaDaEntrega(en, tarefa) || `${horas(en.horas || 0)} lançadas como horas validadas`}</div>`
+                : ''}
               <div class="linha" style="margin-top:10px">
-                <div class="campo"><label>Horas a lançar</label>
-                  <input type="number" min="0" step="0.5" inputmode="decimal" data-av-horas="${en.id}" value="${en.horas ?? ''}"></div>
+                ${tarefa.nota_maxima
+                  ? `<div class="campo"><label>Nota (até ${numero(tarefa.nota_maxima)})</label>
+                       <input type="number" min="0" step="0.5" inputmode="decimal" data-av-nota="${en.id}" value="${en.nota ?? ''}"></div>`
+                  : `<div class="campo"><label>Horas a lançar</label>
+                       <input type="number" min="0" step="0.5" inputmode="decimal" data-av-horas="${en.id}" value="${en.horas ?? ''}"></div>`}
                 <div class="campo" style="flex:2"><label>Observação</label>
                   <input data-av-obs="${en.id}" value="${escapar(en.observacao || '')}" placeholder="Obrigatória para devolver"></div>
               </div>
@@ -1580,7 +1630,8 @@ $('#mural-professor').addEventListener('click', async (e) => {
         metodo: 'POST',
         corpo: {
           status: d.aceitar ? 'aceita' : 'devolvida',
-          horas: $(`[data-av-horas="${id}"]`).value || undefined,
+          horas: $(`[data-av-horas="${id}"]`)?.value || undefined,
+          nota: $(`[data-av-nota="${id}"]`)?.value || undefined,
           observacao: $(`[data-av-obs="${id}"]`).value,
         },
       });
@@ -1612,6 +1663,7 @@ async function carregarProfessor() {
   ]);
   estado.atividades = registros.atividades;
   estado.alunos = turma.alunos;
+  estado.entregasACorrigir = turma.entregas_a_corrigir || 0;
   estado.turmas = turma.turmas;
   // As matérias que este usuário administra, com a turma junto: é por elas que
   // ele navega. Publicar é mais estrito — só nas que ele mesmo dá.
@@ -1681,6 +1733,7 @@ async function iniciar() {
     estado.categorias = dados.categorias;
     estado.cursos = dados.cursos || [];
     await carregarProfessor();
+    mostrarAba('aulas');
     await carregarChaves();
     if (u.papel === 'admin') await carregarAdmin();
     if (u.pode_convidar) await carregarConvites();

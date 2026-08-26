@@ -771,7 +771,7 @@ async function muralDaMateria(bd, materiaId, usuario) {
     materiaId, materiaId,
   );
   const tarefas = await bd.all(
-    `SELECT t.id, t.aula_id, t.titulo, t.enunciado, t.prazo, t.horas_sugeridas, t.publicada,
+    `SELECT t.id, t.aula_id, t.titulo, t.enunciado, t.prazo, t.horas_sugeridas, t.nota_maxima, t.publicada,
             c.nome AS categoria_nome,
             (SELECT COUNT(*) FROM entregas e WHERE e.tarefa_id = t.id) AS entregas,
             (SELECT COUNT(*) FROM entregas e WHERE e.tarefa_id = t.id AND e.status = 'enviada') AS a_avaliar,
@@ -1422,7 +1422,19 @@ export function criarRotas(bd, opcoes = {}) {
         validado: Math.round(l.validado * 100) / 100,
         meta: Number(l.horas_obrigatorias ?? l.meta_horas ?? META_PADRAO),
       }));
-      return { corpo: { alunos, turmas: await turmasVisiveis(bd, equipe) } };
+      // Quantas entregas esperam correção em tudo o que este professor dá — o
+      // número do topo da tela não pode falar só da matéria aberta.
+      const { filtro: escopo, parametros: deQuem } = escopoMaterias(equipe);
+      const { total: aCorrigir } = await bd.get(
+        `SELECT COUNT(DISTINCT e.id) AS total FROM entregas e
+           JOIN tarefas_materias tm ON tm.tarefa_id = e.tarefa_id
+           JOIN materias m ON m.id = tm.materia_id
+          WHERE e.status = 'enviada' ${escopo}`,
+        ...deQuem,
+      );
+      return {
+        corpo: { alunos, turmas: await turmasVisiveis(bd, equipe), entregas_a_corrigir: aCorrigir },
+      };
     }],
 
     // ---------- estrutura acadêmica ----------
@@ -1850,20 +1862,26 @@ export function criarRotas(bd, opcoes = {}) {
         : await materiasDoPedido(bd, ctx.corpo, equipe);
       const materia = materias[0];
       const agora = new Date().toISOString();
-      const horas = ctx.corpo.horas_sugeridas === '' || ctx.corpo.horas_sugeridas === undefined || ctx.corpo.horas_sugeridas === null
-        ? null : Number(ctx.corpo.horas_sugeridas);
-      if (horas !== null && (!Number.isFinite(horas) || horas <= 0)) throw erro(400, 'Horas sugeridas inválidas.');
+      const numeroOuNada = (valor, rotulo) => {
+        if (valor === '' || valor === undefined || valor === null) return null;
+        const n = Number(valor);
+        if (!Number.isFinite(n) || n <= 0) throw erro(400, `${rotulo} inválida.`);
+        return n;
+      };
+      const horas = numeroOuNada(ctx.corpo.horas_sugeridas, 'Carga em horas');
+      // Matéria que não gera hora complementar avalia com nota, como sempre.
+      const notaMaxima = numeroOuNada(ctx.corpo.nota_maxima, 'Nota máxima');
 
       const { ultimoId } = await bd.run(
-        `INSERT INTO tarefas(turma_id, aula_id, titulo, enunciado, prazo, horas_sugeridas, categoria_id,
-                             publicada, criada_por, criada_em, atualizada_em)
-         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tarefas(turma_id, aula_id, titulo, enunciado, prazo, horas_sugeridas, nota_maxima,
+                             categoria_id, publicada, criada_por, criada_em, atualizada_em)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         materia.turma_id,
         ctx.corpo.aula_id ? Number(ctx.corpo.aula_id) : null,
         texto(ctx.corpo.titulo, 'o título da tarefa', { max: 160 }),
         texto(ctx.corpo.enunciado, 'o enunciado', { obrigatorio: false, max: 8000 }) || null,
         data(ctx.corpo.prazo, 'o prazo', { obrigatorio: false }),
-        horas,
+        horas, notaMaxima,
         ctx.corpo.categoria_id ? Number(ctx.corpo.categoria_id) : null,
         ctx.corpo.publicada === false ? 0 : 1,
         equipe.id, agora, agora,
@@ -1974,7 +1992,7 @@ export function criarRotas(bd, opcoes = {}) {
     ['POST', /^\/api\/entregas\/(\d+)\/avaliacao$/, async (ctx) => {
       const equipe = exigirEquipe(ctx.exigirLogin());
       const entrega = await bd.get(
-        `SELECT e.*, t.turma_id, t.titulo AS tarefa_titulo, t.horas_sugeridas, t.categoria_id,
+        `SELECT e.*, t.turma_id, t.titulo AS tarefa_titulo, t.horas_sugeridas, t.nota_maxima, t.categoria_id,
                 cat.nome AS categoria_nome, arq.nome AS arquivo_nome
            FROM entregas e
            JOIN tarefas t ON t.id = e.tarefa_id
@@ -1996,8 +2014,16 @@ export function criarRotas(bd, opcoes = {}) {
       const agora = new Date().toISOString();
       let atividadeId = entrega.atividade_id;
       let horas = null;
+      let nota = entrega.nota;
 
       if (status === 'aceita') {
+        if (ctx.corpo.nota !== undefined && ctx.corpo.nota !== null && ctx.corpo.nota !== '') {
+          nota = Number(ctx.corpo.nota);
+          if (!Number.isFinite(nota) || nota < 0) throw erro(400, 'Nota inválida.');
+          if (entrega.nota_maxima && nota > entrega.nota_maxima) {
+            throw erro(400, `A nota máxima desta tarefa é ${entrega.nota_maxima}.`);
+          }
+        }
         horas = Number(ctx.corpo.horas ?? entrega.horas_sugeridas ?? 0);
         if (!Number.isFinite(horas) || horas < 0) throw erro(400, 'Horas inválidas.');
 
@@ -2035,16 +2061,17 @@ export function criarRotas(bd, opcoes = {}) {
       }
 
       await bd.run(
-        `UPDATE entregas SET status = ?, observacao = ?, horas = ?, atividade_id = ?,
+        `UPDATE entregas SET status = ?, observacao = ?, horas = ?, nota = ?, atividade_id = ?,
                              avaliada_por = ?, avaliada_em = ?, atualizada_em = ?
           WHERE id = ?`,
-        status, observacao, horas, atividadeId, equipe.id, agora, agora, entrega.id,
+        status, observacao, horas, nota, atividadeId, equipe.id, agora, agora, entrega.id,
       );
 
       return {
         corpo: {
           entrega: await bd.get('SELECT * FROM entregas WHERE id = ?', entrega.id),
           horas_lancadas: status === 'aceita' ? horas : 0,
+          nota: status === 'aceita' ? nota : null,
         },
       };
     }],

@@ -137,7 +137,7 @@ button.mini { min-height: 42px; padding: 8px 16px; font-size: 15px; }
 .ficha { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 18px; margin-top: 14px; }
 .ficha div { font-size: 15px; }
 .ficha .rotulo { color: var(--suave); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
-.atividade pre {
+.item pre, .atividade pre {
   white-space: pre-wrap; word-wrap: break-word; background: var(--fundo); border: 1px solid var(--borda);
   border-radius: 10px; padding: 14px; margin: 12px 0 0; font-size: 15px; line-height: 1.65;
   max-height: 400px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -276,12 +276,35 @@ button.mini { min-height: 42px; padding: 8px 16px; font-size: 15px; }
 }
 .bloco > h2::after { content: ''; flex: 1; height: 1px; background: var(--borda); }
 
+/* Formulário que fica fora do caminho até ser preciso: fechado é uma linha só,
+   e o conteúdo da tela aparece primeiro. */
+.dobra > summary {
+  cursor: pointer; list-style: none; font-weight: 650; font-size: 17px;
+  color: var(--cor-area, var(--acento)); display: flex; align-items: center; gap: 10px;
+}
+.dobra > summary::-webkit-details-marker { display: none; }
+.dobra > summary .mais {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 8px; font-size: 19px; line-height: 1;
+  background: var(--cor-area, var(--acento)); color: #fff; flex: 0 0 auto;
+}
+.dobra[open] > summary { margin-bottom: 14px; }
+.dobra[open] > summary .mais { transform: rotate(45deg); }
+@media (prefers-reduced-motion: no-preference) {
+  .dobra > summary .mais { transition: transform .2s ease; }
+}
+
 /* A matéria dentro da sala: um cartão mais leve, com o filete da área. */
 .materia {
   border: 1px solid var(--borda); border-left: 3px solid var(--turmas);
   border-radius: 12px; padding: 14px; margin-bottom: 10px; background: var(--superficie);
 }
-.materia .nome { font-weight: 650; }
+.materia .cabecalho { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.materia .titulo { font-weight: 650; font-size: 16px; }
+.materia .sub { color: var(--suave); font-size: 14px; }
+.dobra.fina > summary { font-size: 15px; margin-top: 10px; }
+.dobra.discreta > summary { font-size: 14px; color: var(--suave); text-decoration: underline; }
+.dobra.fina > summary .mais { width: 20px; height: 20px; font-size: 15px; border-radius: 6px; }
 .materia.de-colega { border-left-color: var(--suave); background: transparent; }
 
 .bloco > h3 {

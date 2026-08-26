@@ -102,6 +102,20 @@ O resto — cursos e categorias, pessoas, convites, integração e os próprios 
 **engrenagem** no canto superior, numa tela de configurações com suas próprias abas. É configuração
 de instalação, não trabalho de aula.
 
+## Ver funcionando, com uma faculdade de mentira dentro
+
+```bash
+npm run demo
+```
+
+Monta do zero uma faculdade de exemplo — duas professoras dividindo a mesma turma, seis alunos,
+aulas com PDF, tarefas entregues, notas dadas, horas esperando validação, anotações — e abre o
+sistema já com ela dentro, em <http://localhost:3000>. O terminal imprime os logins (a senha de
+todo mundo é `demo1234`) e os códigos das salas.
+
+O banco da demonstração é um arquivo à parte (`data/demo.db`), refeito a cada vez: nada disso
+encosta no banco de verdade, e rodar de novo devolve tudo ao estado inicial.
+
 ## Papéis
 
 | Papel | Enxerga | Faz |
@@ -145,6 +159,20 @@ Seminário de Pesquisa. Disso sai o resto:
 - **quem chegou depois entra pelo mesmo código**: em *Turmas → Entrar numa turma que já existe*, o
   colega informa o código da sala e cria a matéria dele ali. Ele passa a ver os alunos da turma e a
   validar as horas deles, mas mexe só na própria matéria — a turma em si continua com quem a criou.
+
+## Tarefa que vale nota, tarefa que vale hora
+
+Como a matéria decide se gera hora complementar, a tarefa dela é avaliada do jeito certo sem o
+professor precisar configurar nada:
+
+| Matéria | O que a tarefa pede | O que o professor lança ao aceitar |
+| --- | --- | --- |
+| Estágio, extensão, monitoria | **quantas horas vale** e a categoria | as horas, que viram atividade já validada |
+| Disciplina comum | **a nota máxima** (ex.: até 10) | a nota, que aparece para o aluno na hora |
+
+O aluno vê "vale nota até 10" antes de entregar e "Corrigida: nota 9 de 10" depois, junto com a
+observação do professor. Nota não vira hora complementar — são coisas diferentes, e o histórico de
+horas do aluno continua limpo.
 
 ## Matéria que gera horas, matéria que não gera
 

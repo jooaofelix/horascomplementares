@@ -264,8 +264,8 @@
     </div>
 
     <div id="aba-aulas" class="oculto">
-      <div class="cartao">
-        <h2>Publicar aula</h2>
+      <details class="cartao dobra" id="form-nova-aula" data-area="aulas">
+        <summary><span class="mais">+</span> Publicar uma aula</summary>
         <p class="explicacao">A aula agrupa o material e as tarefas daquele encontro.</p>
         <div class="campo">
           <label for="nova-aula-titulo">Título</label>
@@ -299,15 +299,14 @@
           <div class="ajuda" id="ajuda-formatos">PDF, PPTX, DOCX, planilha, imagem ou texto.</div>
         </div>
         <button id="btn-criar-aula">Publicar aula</button>
-      </div>
+      </details>
 
       <div id="mural-professor"></div>
     </div>
 
     <div id="aba-turmas" class="oculto">
-      <div class="cartao" data-area="turmas">
-        <span class="etiqueta">Sala nova</span>
-        <h2>Criar turma</h2>
+      <details class="cartao dobra" id="form-nova-turma" data-area="turmas">
+        <summary><span class="mais">+</span> Criar uma turma</summary>
         <p class="explicacao">
           A turma é a sala: ela tem o código que os alunos usam para entrar. Dentro dela ficam as
           matérias — a sua e a dos outros professores que dão aula para os mesmos alunos.
@@ -344,11 +343,10 @@
           </label>
         </div>
         <button id="btn-criar-turma">Criar turma</button>
-      </div>
+      </details>
 
-      <div class="cartao" data-area="aulas">
-        <span class="etiqueta">Sala de um colega</span>
-        <h2>Entrar numa turma que já existe</h2>
+      <details class="cartao dobra" data-area="alunos">
+        <summary><span class="mais">+</span> Entrar numa turma que já existe</summary>
         <p class="explicacao">
           Outro professor já abriu a sala? Peça o código dela e crie aqui a sua matéria: vocês passam
           a dividir os mesmos alunos, cada um com o seu mural.
@@ -368,7 +366,7 @@
           <span>Esta matéria gera horas complementares</span>
         </label>
         <button class="secundario" id="btn-entrar-turma">Criar minha matéria nessa sala</button>
-      </div>
+      </details>
 
       <div class="grade" id="lista-turmas"></div>
     </div>

@@ -1542,6 +1542,51 @@ test('editar a aula troca as turmas que a recebem', async () => {
 
 // ---------------------------------------------------------------- matérias
 
+test('tarefa de matéria sem horas é corrigida com nota, não com hora complementar', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const sala = (await admin('/api/turmas', {
+      metodo: 'POST', corpo: { nome: '3A', materia: 'Psicologia do Desenvolvimento' },
+    })).dados;
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', sala.turma.codigo);
+
+    const tarefa = (await admin('/api/tarefas', {
+      metodo: 'POST',
+      corpo: {
+        materia_ids: [sala.materias[0].id],
+        titulo: 'Fichamento do capítulo 2',
+        nota_maxima: 10,
+      },
+    })).dados.tarefa;
+    assert.equal(tarefa.nota_maxima, 10);
+
+    const entrega = (await ana(`/api/tarefas/${tarefa.id}/entrega`, {
+      metodo: 'PUT', corpo: { texto: 'Meu fichamento.' },
+    })).dados.entrega;
+
+    const alta = await admin(`/api/entregas/${entrega.id}/avaliacao`, {
+      metodo: 'POST', corpo: { status: 'aceita', nota: 12 },
+    });
+    assert.equal(alta.status, 400);
+    assert.match(alta.dados.erro, /nota máxima/);
+
+    const aceita = await admin(`/api/entregas/${entrega.id}/avaliacao`, {
+      metodo: 'POST', corpo: { status: 'aceita', nota: 8.5, observacao: 'Boa síntese.' },
+    });
+    assert.equal(aceita.status, 200, JSON.stringify(aceita.dados));
+    assert.equal(aceita.dados.entrega.nota, 8.5);
+
+    // Nota não vira hora complementar: o histórico do aluno continua vazio.
+    assert.equal((await ana('/api/atividades')).dados.atividades.length, 0);
+    assert.equal((await ana('/api/eu')).dados.resumo.validado, 0);
+
+    const mural = await ana(`/api/turmas/${sala.turma.id}/mural`);
+    const minha = mural.dados.materias[0].avulsos.tarefas[0].minha_entrega;
+    assert.equal(minha.nota, 8.5);
+    assert.equal(minha.observacao, 'Boa síntese.');
+  });
+});
+
 test('dois professores dividem a mesma sala, cada um com a sua matéria', async () => {
   await comAmbiente(async ({ base }) => {
     const admin = await criarProfessor(base);

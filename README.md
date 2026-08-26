@@ -8,9 +8,10 @@ validada sem ninguém redigitar nada.
 A ideia é a de um Google Classroom próprio da instituição, com a parte de horas complementares que
 o Classroom não tem.
 
-Cada professor é dono das próprias turmas: ele se cadastra sozinho, cria as turmas e recebe um
-**código** por turma. Só quem tem o código entra, e um professor nunca enxerga os alunos de outro —
-dá para vários professores usarem a mesma instalação.
+A **turma é a sala**: ela tem o código de acesso, e dentro dela ficam as **matérias**, uma por
+professor. Assim o aluno entra uma vez e passa a ter todos os professores daquela turma, e cada
+professor tem quantas matérias quiser, em quantas turmas quiser. Quem só entrou pelo código de uma
+sala não enxerga as outras — dá para a faculdade inteira usar a mesma instalação.
 
 A tela foi desenhada primeiro para o celular, que é onde o aluno lança as horas, e se abre em
 colunas no computador.
@@ -94,7 +95,7 @@ A tela do dia a dia tem só o que se usa toda semana:
 
 | Quem | Vê |
 | --- | --- |
-| **Aluno** | as aulas e tarefas da turma primeiro; abaixo, as próprias horas complementares |
+| **Aluno** | as aulas e tarefas, separadas por matéria; abaixo, as próprias horas complementares |
 | **Professor** | abas **Aulas**, **Alunos**, **Horas** e **Turmas** |
 
 O resto — cursos e categorias, pessoas, convites, integração e os próprios dados — fica atrás da
@@ -106,7 +107,7 @@ de instalação, não trabalho de aula.
 | Papel | Enxerga | Faz |
 | --- | --- | --- |
 | **Aluno** | só os próprios registros | lança atividades e acompanha as horas |
-| **Professor** | as turmas que criou | valida as horas dos alunos dessas turmas |
+| **Professor** | as turmas onde tem matéria | valida as horas dos alunos dessas turmas |
 | **Coordenador** | todas as turmas dos cursos que coordena | valida em qualquer turma do curso |
 | **Admin** | a faculdade inteira | cursos, categorias, limites, papéis e pessoas |
 
@@ -131,19 +132,33 @@ desativada e some das listas novas, preservando o histórico.
 
 O aluno herda o curso da turma em que entrou pelo código — não precisa escolher nada.
 
-## Turma que gera horas, turma que não gera
+## Turmas e matérias
 
-Nem toda turma vira hora complementar. Ao criar (ou editar) a turma, o professor marca **"esta turma
-gera horas complementares"** — para estágio, extensão, monitoria. Uma disciplina comum fica
-desmarcada, e então:
+A turma é o grupo de alunos — "4º período — Psicologia, 2026.1 manhã" — e é dela o código de acesso.
+Dentro dela cada professor cria a **matéria** que dá: Técnicas de Observação, Estágio Supervisionado,
+Seminário de Pesquisa. Disso sai o resto:
 
-- o aluno dessa turma **não vê** a seção de horas: a tela dele é só aulas e tarefas;
-- no painel do professor, o cartão do aluno mostra "turma sem horas complementares" no lugar dos
+- **o aluno tem vários professores**: entra uma vez, com um código só, e o mural dele vem separado
+  por matéria, com o nome de quem dá cada uma;
+- **o professor tem várias matérias**, na mesma turma ou em turmas diferentes, e navega entre elas
+  pelo seletor **Matéria que você está vendo**;
+- **quem chegou depois entra pelo mesmo código**: em *Turmas → Entrar numa turma que já existe*, o
+  colega informa o código da sala e cria a matéria dele ali. Ele passa a ver os alunos da turma e a
+  validar as horas deles, mas mexe só na própria matéria — a turma em si continua com quem a criou.
+
+## Matéria que gera horas, matéria que não gera
+
+Nem toda matéria vira hora complementar. Ao criá-la, o professor marca **"esta matéria gera horas
+complementares"** — para estágio, extensão, monitoria. Uma disciplina comum fica desmarcada, e então:
+
+- o aluno **só vê** a seção de horas se alguma matéria da sala dele gerar horas; se nenhuma gera, a
+  tela dele é só aulas e tarefas;
+- no painel do professor, o cartão do aluno mostra "sala sem matéria que gere horas" no lugar dos
   totais;
-- a mesma conta de professor pode ter as duas coisas ao mesmo tempo — Técnicas de Observação sem
-  horas, Estágio Supervisionado com 300 h de meta.
+- a mesma turma pode ter as duas coisas ao mesmo tempo — Técnicas de Observação sem horas, Estágio
+  Supervisionado com 300 h de meta.
 
-Marcar depois funciona: a turma passa a contar sem precisar recriar nada.
+Marcar depois funciona: a matéria passa a contar sem precisar recriar nada.
 
 ## Anotações sobre o aluno
 
@@ -152,19 +167,20 @@ combinamos reposição em 12/05". Cada anotação guarda quem escreveu e quando;
 o que escreveu. **O aluno nunca vê** — nem pela API: a rota responde 403 para ele, e um teste confere
 que nada disso vaza no que ele lê.
 
-## Turmas e códigos
+## Códigos de acesso
 
-Na aba **Turmas**, o professor cria cada turma com nome, período e **meta de horas própria**. Cada
-turma ganha um código de 6 caracteres (ex.: `9PFQ3K`), sem letras ambíguas para não confundir na
-hora de ditar em sala. O botão **Copiar convite** copia o endereço do sistema junto com o código,
-pronto para colar no grupo da turma.
+Na aba **Turmas**, o professor cria a turma com nome, período, **meta de horas própria** e a primeira
+matéria — a dele. Cada turma ganha um código de 6 caracteres (ex.: `9PFQ3K`), sem letras ambíguas
+para não confundir na hora de ditar em sala. O botão **Copiar convite** copia o endereço do sistema
+junto com o código, pronto para colar no grupo da turma.
 
-O aluno digita esse código ao criar a conta — antes de confirmar, a tela mostra em qual turma e com
-qual professor ele vai entrar. Se errar de turma, ele mesmo corrige em *Seus dados* com o código
+O mesmo código serve para as duas pontas: o **aluno** o usa ao criar a conta — antes de confirmar, a
+tela lista a turma e todas as matérias com seus professores — e o **professor** o usa para abrir a
+matéria dele naquela sala. Se o aluno errar de turma, ele mesmo corrige em *Seus dados* com o código
 certo.
 
-Com mais de uma turma aparece o seletor **Turma que você está vendo**, que filtra de uma vez a lista
-de alunos, a fila de validação e a planilha exportada.
+Com mais de uma matéria aparece o seletor **Matéria que você está vendo**, que filtra de uma vez o
+mural, a lista de alunos, a fila de validação e a planilha exportada.
 
 ## Contas
 
@@ -176,7 +192,7 @@ ele quem passa a poder convidar os outros. Na aba **Convites** ele gera códigos
 com uma anotação para lembrar de quem é, copia o convite pronto para enviar e revoga os que ainda não
 foram usados. A lista mostra quem usou cada convite e quando.
 
-Quem entra por convite vira professor pleno das próprias turmas, mas não gera convites: a porta
+Quem entra por convite vira professor pleno das próprias matérias, mas não gera convites: a porta
 continua sendo só sua. Para dar essa permissão a outra pessoa:
 
 ```bash
@@ -184,20 +200,20 @@ npx wrangler d1 execute horas-complementares --remote \
   --command "UPDATE usuarios SET pode_convidar = 1 WHERE email = 'colega@exemplo.br'"
 ```
 
-Um professor nunca enxerga as turmas, os alunos nem os convites de outro.
+Um professor nunca enxerga as matérias, os alunos nem os convites de quem não divide turma com ele.
 
 ## Aulas, materiais e tarefas
 
-Além do lançamento avulso de horas, o professor tem um mural por turma:
+Além do lançamento avulso de horas, o professor tem um mural por matéria:
 
 - **Aulas** com título, data e descrição — e rascunho, que o aluno não vê até ser publicado. Uma
-  mesma aula pode ser publicada para **várias turmas de uma vez**: o professor de 3A e 3B monta o
+  mesma aula pode ser publicada para **várias matérias de uma vez**: o professor de 3A e 3B monta o
   material uma vez só, e cada turma vê no mural dela.
 - **Materiais** dentro de cada aula: arquivo ou link. A própria tela de publicar a aula já aceita o
   slide ou o PDF, sem precisar de um segundo passo.
 - **Tarefas** com enunciado, prazo, categoria e quantas horas valem. Tarefa criada dentro de uma
-  aula compartilhada alcança as mesmas turmas dela, e a fila de correção junta as entregas de todas,
-  com o nome da turma ao lado de cada aluno.
+  aula compartilhada alcança as mesmas matérias dela, e a fila de correção junta as entregas de
+  todas, com o nome da turma ao lado de cada aluno.
 
 O aluno abre a turma no celular, baixa o material e entrega ali mesmo — texto, arquivo, ou os dois.
 O professor vê a fila (`3 a avaliar`), lê a entrega e decide:

@@ -45,6 +45,7 @@ const COLUNAS_NOVAS = [
   ['atividades', 'responsavel', 'TEXT'],
   ['atividades', 'data_fim', 'TEXT'],
   ['atividades', 'comprovante', 'TEXT'],
+  ['materiais', 'materia_id', 'INTEGER REFERENCES materias(id) ON DELETE CASCADE'],
 ];
 
 function garantirColunas(db) {
@@ -88,6 +89,24 @@ function garantirColunas(db) {
        SET categoria_id = (SELECT c.id FROM categorias c WHERE c.nome = atividades.categoria)
      WHERE categoria_id IS NULL;
     UPDATE usuarios SET papel = 'admin' WHERE papel = 'professor' AND pode_convidar = 1;
+
+    -- Cada turma antiga vira uma sala com uma matéria de mesmo nome; o vínculo
+    -- que era com a turma passa para ela. Ver migracoes/012.
+    INSERT INTO materias(turma_id, nome, professor_id, conta_horas, criada_em)
+    SELECT t.id, t.nome, t.professor_id, COALESCE(t.conta_horas, 1), datetime('now')
+      FROM turmas t
+     WHERE NOT EXISTS (SELECT 1 FROM materias m WHERE m.turma_id = t.id);
+    INSERT OR IGNORE INTO aulas_materias(aula_id, materia_id)
+    SELECT at.aula_id, (SELECT MIN(m.id) FROM materias m WHERE m.turma_id = at.turma_id)
+      FROM aulas_turmas at
+     WHERE (SELECT MIN(m.id) FROM materias m WHERE m.turma_id = at.turma_id) IS NOT NULL;
+    INSERT OR IGNORE INTO tarefas_materias(tarefa_id, materia_id)
+    SELECT tt.tarefa_id, (SELECT MIN(m.id) FROM materias m WHERE m.turma_id = tt.turma_id)
+      FROM tarefas_turmas tt
+     WHERE (SELECT MIN(m.id) FROM materias m WHERE m.turma_id = tt.turma_id) IS NOT NULL;
+    UPDATE materiais
+       SET materia_id = (SELECT MIN(m.id) FROM materias m WHERE m.turma_id = materiais.turma_id)
+     WHERE materia_id IS NULL;
 
     -- Sem ninguém podendo convidar, o primeiro professor recebe a permissão.
     UPDATE usuarios

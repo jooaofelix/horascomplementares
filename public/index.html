@@ -105,7 +105,7 @@
   <div id="painel-aluno" class="oculto">
     <div class="cartao oculto" id="cartao-mural-aluno" data-area="aulas">
       <h2>Aulas e tarefas</h2>
-      <p class="explicacao">O que o professor publicou na sua turma. Toque para abrir o material ou entregar.</p>
+      <p class="explicacao">O que os seus professores publicaram, matéria por matéria. Toque para abrir o material ou entregar.</p>
       <div id="mural-aluno"></div>
     </div>
 
@@ -233,7 +233,7 @@
     </div>
 
     <div class="cartao oculto" id="filtro-turma-cartao">
-      <label for="filtro-turma">Turma que você está vendo</label>
+      <label for="filtro-turma">Matéria que você está vendo</label>
       <select id="filtro-turma"></select>
     </div>
 
@@ -272,7 +272,7 @@
           <input id="nova-aula-titulo" maxlength="160" placeholder="Ex.: Aula 3 — Registro cursivo">
         </div>
         <div class="campo">
-          <label>Turmas que recebem esta aula</label>
+          <label>Matérias que recebem esta aula</label>
           <div id="nova-aula-turmas" class="escolha-turmas"></div>
           <div class="ajuda">Marque quantas quiser — a mesma aula serve 3A e 3B sem repetir o trabalho.</div>
         </div>
@@ -305,12 +305,22 @@
     </div>
 
     <div id="aba-turmas" class="oculto">
-      <div class="cartao">
+      <div class="cartao" data-area="turmas">
+        <span class="etiqueta">Sala nova</span>
         <h2>Criar turma</h2>
-        <p class="explicacao">Cada turma tem meta própria e um código que os alunos usam para entrar.</p>
-        <div class="campo">
-          <label for="nova-turma-nome">Nome da turma</label>
-          <input id="nova-turma-nome" placeholder="Ex.: Técnicas de Observação — 4º período">
+        <p class="explicacao">
+          A turma é a sala: ela tem o código que os alunos usam para entrar. Dentro dela ficam as
+          matérias — a sua e a dos outros professores que dão aula para os mesmos alunos.
+        </p>
+        <div class="linha">
+          <div class="campo">
+            <label for="nova-turma-nome">Nome da turma</label>
+            <input id="nova-turma-nome" placeholder="Ex.: 4º período — Psicologia">
+          </div>
+          <div class="campo">
+            <label for="nova-turma-materia">Sua matéria nela</label>
+            <input id="nova-turma-materia" maxlength="120" placeholder="Ex.: Técnicas de Observação">
+          </div>
         </div>
         <div class="linha">
           <div class="campo">
@@ -329,12 +339,37 @@
         <div class="campo">
           <label class="opcao-turma" for="nova-turma-conta">
             <input type="checkbox" id="nova-turma-conta">
-            <span>Esta turma gera horas complementares
+            <span>Esta matéria gera horas complementares
               <span class="sub">— marque para estágio, extensão, monitoria</span></span>
           </label>
         </div>
         <button id="btn-criar-turma">Criar turma</button>
       </div>
+
+      <div class="cartao" data-area="aulas">
+        <span class="etiqueta">Sala de um colega</span>
+        <h2>Entrar numa turma que já existe</h2>
+        <p class="explicacao">
+          Outro professor já abriu a sala? Peça o código dela e crie aqui a sua matéria: vocês passam
+          a dividir os mesmos alunos, cada um com o seu mural.
+        </p>
+        <div class="linha">
+          <div class="campo">
+            <label for="entrar-codigo">Código da sala</label>
+            <input id="entrar-codigo" maxlength="12" autocapitalize="characters" style="text-transform:uppercase" placeholder="Ex.: 7KQ2PD">
+          </div>
+          <div class="campo">
+            <label for="entrar-materia">Nome da sua matéria</label>
+            <input id="entrar-materia" maxlength="120" placeholder="Ex.: Estágio supervisionado">
+          </div>
+        </div>
+        <label class="opcao-turma" style="margin-bottom:14px" for="entrar-conta">
+          <input type="checkbox" id="entrar-conta">
+          <span>Esta matéria gera horas complementares</span>
+        </label>
+        <button class="secundario" id="btn-entrar-turma">Criar minha matéria nessa sala</button>
+      </div>
+
       <div class="grade" id="lista-turmas"></div>
     </div>
 

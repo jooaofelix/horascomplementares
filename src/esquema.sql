@@ -46,6 +46,18 @@ CREATE TABLE IF NOT EXISTS turmas (
   criado_em    TEXT NOT NULL
 );
 
+-- Uma sala (turma) guarda várias matérias, cada uma com o seu professor. É daí
+-- que sai o resto: o aluno entra na sala com um código e passa a ter todos os
+-- professores dela; o professor cria uma matéria em cada sala em que dá aula.
+CREATE TABLE IF NOT EXISTS materias (
+  id           INTEGER PRIMARY KEY,
+  turma_id     INTEGER NOT NULL REFERENCES turmas(id) ON DELETE CASCADE,
+  nome         TEXT NOT NULL,
+  professor_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  conta_horas  INTEGER NOT NULL DEFAULT 0,
+  criada_em    TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS usuarios (
   id         INTEGER PRIMARY KEY,
   nome       TEXT NOT NULL,
@@ -190,6 +202,22 @@ CREATE TABLE IF NOT EXISTS aulas (
   atualizada_em TEXT NOT NULL
 );
 
+-- Uma aula (e uma tarefa) pode ir para mais de uma matéria: o professor publica
+-- uma vez para as suas turmas de 3A e 3B em vez de repetir o trabalho.
+CREATE TABLE IF NOT EXISTS aulas_materias (
+  aula_id    INTEGER NOT NULL REFERENCES aulas(id) ON DELETE CASCADE,
+  materia_id INTEGER NOT NULL REFERENCES materias(id) ON DELETE CASCADE,
+  PRIMARY KEY (aula_id, materia_id)
+);
+
+CREATE TABLE IF NOT EXISTS tarefas_materias (
+  tarefa_id  INTEGER NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+  materia_id INTEGER NOT NULL REFERENCES materias(id) ON DELETE CASCADE,
+  PRIMARY KEY (tarefa_id, materia_id)
+);
+
+-- Legado: o vínculo por turma que veio antes das matérias. Nada lê mais daqui;
+-- a tabela fica porque é dela que a migração 012 tira o vínculo antigo.
 CREATE TABLE IF NOT EXISTS aulas_turmas (
   aula_id  INTEGER NOT NULL REFERENCES aulas(id) ON DELETE CASCADE,
   turma_id INTEGER NOT NULL REFERENCES turmas(id) ON DELETE CASCADE,
@@ -205,6 +233,7 @@ CREATE TABLE IF NOT EXISTS tarefas_turmas (
 CREATE TABLE IF NOT EXISTS materiais (
   id         INTEGER PRIMARY KEY,
   turma_id   INTEGER NOT NULL REFERENCES turmas(id) ON DELETE CASCADE,
+  materia_id INTEGER REFERENCES materias(id) ON DELETE CASCADE,
   aula_id    INTEGER REFERENCES aulas(id) ON DELETE CASCADE,
   tipo       TEXT NOT NULL DEFAULT 'arquivo',
   titulo     TEXT NOT NULL,
@@ -251,6 +280,11 @@ CREATE INDEX IF NOT EXISTS idx_aulas_turma ON aulas(turma_id);
 CREATE INDEX IF NOT EXISTS idx_materiais_turma ON materiais(turma_id);
 CREATE INDEX IF NOT EXISTS idx_tarefas_turma ON tarefas(turma_id);
 CREATE INDEX IF NOT EXISTS idx_entregas_tarefa ON entregas(tarefa_id);
+CREATE INDEX IF NOT EXISTS idx_materias_turma ON materias(turma_id);
+CREATE INDEX IF NOT EXISTS idx_materias_professor ON materias(professor_id);
+CREATE INDEX IF NOT EXISTS idx_materiais_materia ON materiais(materia_id);
+CREATE INDEX IF NOT EXISTS idx_aulas_materias_materia ON aulas_materias(materia_id);
+CREATE INDEX IF NOT EXISTS idx_tarefas_materias_materia ON tarefas_materias(materia_id);
 
 INSERT OR IGNORE INTO categorias(nome, ordem, criada_em) VALUES
   ('Observação em campo', 1, datetime('now')),

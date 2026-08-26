@@ -11,6 +11,7 @@ const TABELAS = [
   ['categorias', 'categorias'],
   ['regras_categoria', 'regras de limite'],
   ['turmas', 'turmas'],
+  ['materias', 'matérias'],
   ['atividades', 'atividades de horas'],
   ['aulas', 'aulas'],
   ['materiais', 'materiais'],

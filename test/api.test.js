@@ -132,7 +132,7 @@ test('o aluno entra pelo código da turma e herda a meta dela', async () => {
     assert.equal(eu.dados.usuario.turma_nome, 'Manhã');
     assert.equal(eu.dados.usuario.matricula, '2026001');
     assert.equal(eu.dados.resumo.meta, 120);
-    assert.equal(eu.dados.professor.nome, 'Profa. Marina');
+    assert.equal(eu.dados.materias[0].professor_nome, 'Profa. Marina');
   });
 });
 
@@ -1432,7 +1432,7 @@ test('uma aula publicada para duas turmas aparece nas duas, com o material', asy
       },
     });
     assert.equal(aula.status, 201, JSON.stringify(aula.dados));
-    assert.deepEqual(aula.dados.turmas.map((t) => t.nome).sort(), ['3A — manhã', '3B — noite']);
+    assert.deepEqual(aula.dados.materias.map((m) => m.turma_nome).sort(), ['3A — manhã', '3B — noite']);
 
     for (const [quem, turma] of [[ana, manha], [bruno, noite]]) {
       const mural = await quem(`/api/turmas/${turma.id}/mural`);
@@ -1459,13 +1459,13 @@ test('a tarefa da aula compartilhada recebe entregas das duas turmas', async () 
       metodo: 'POST', corpo: { turma_ids: [manha.id, noite.id], titulo: 'Aula 3' },
     })).dados.aula;
 
-    // Sem dizer as turmas: a tarefa herda as da aula.
+    // Sem dizer as matérias: a tarefa herda as da aula.
     const tarefa = await admin('/api/tarefas', {
       metodo: 'POST',
-      corpo: { aula_id: aula.id, turma_id: manha.id, titulo: 'Registro da observação', horas_sugeridas: 3 },
+      corpo: { aula_id: aula.id, titulo: 'Registro da observação', horas_sugeridas: 3 },
     });
-    assert.equal(tarefa.status, 201);
-    assert.equal(tarefa.dados.turmas.length, 2, 'herdou as duas turmas da aula');
+    assert.equal(tarefa.status, 201, JSON.stringify(tarefa.dados));
+    assert.equal(tarefa.dados.materias.length, 2, 'herdou as duas matérias da aula');
 
     const id = tarefa.dados.tarefa.id;
     assert.equal((await ana(`/api/tarefas/${id}/entrega`, { metodo: 'PUT', corpo: { texto: 'Entrega da Ana' } })).status, 200);
@@ -1532,7 +1532,7 @@ test('editar a aula troca as turmas que a recebem', async () => {
     const editada = await admin(`/api/aulas/${aula.id}`, {
       metodo: 'PUT', corpo: { titulo: 'Aula 3', turma_ids: [manha.id, noite.id] },
     });
-    assert.equal(editada.dados.turmas.length, 2);
+    assert.equal(editada.dados.materias.length, 2);
     assert.equal((await bruno(`/api/turmas/${noite.id}/mural`)).dados.aulas.length, 1, 'agora alcança 3B');
     assert.equal((await ana(`/api/turmas/${manha.id}/mural`)).dados.aulas.length, 1, 'e continua em 3A');
   });
@@ -1540,29 +1540,131 @@ test('editar a aula troca as turmas que a recebem', async () => {
 
 // ---------------------------------------------------------------- turma sem horas e anotações
 
-test('turma comum não gera horas; turma de estágio gera', async () => {
+// ---------------------------------------------------------------- matérias
+
+test('dois professores dividem a mesma sala, cada um com a sua matéria', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const sala = (await admin('/api/turmas', {
+      metodo: 'POST', corpo: { nome: '3º Psicologia — manhã', materia: 'Técnicas de Observação' },
+    })).dados;
+
+    // O segundo professor entra na sala com o mesmo código que o aluno usa.
+    const helena = await criarProfessorConvidado(base, admin, 'Profa. Helena', 'helena@ex.br');
+    const dela = await helena('/api/materias', {
+      metodo: 'POST',
+      corpo: { codigo_turma: sala.turma.codigo, nome: 'Estágio supervisionado', conta_horas: true },
+    });
+    assert.equal(dela.status, 201, JSON.stringify(dela.dados));
+
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', sala.turma.codigo);
+    const eu = await ana('/api/eu');
+    assert.deepEqual(
+      eu.dados.materias.map((m) => `${m.nome} — ${m.professor_nome}`).sort(),
+      ['Estágio supervisionado — Profa. Helena', 'Técnicas de Observação — Profa. Marina'],
+      'o aluno passa a ter os dois professores',
+    );
+    assert.equal(eu.dados.conta_horas, true, 'basta uma matéria de estágio na sala');
+
+    // Cada professor publica na matéria dele.
+    await admin('/api/aulas', {
+      metodo: 'POST', corpo: { materia_ids: [sala.materias[0].id], titulo: 'Registro cursivo' },
+    });
+    await helena('/api/aulas', {
+      metodo: 'POST', corpo: { materia_ids: [dela.dados.materia.id], titulo: 'Primeira visita ao campo' },
+    });
+
+    const naSala = await ana(`/api/turmas/${sala.turma.id}/mural`);
+    assert.deepEqual(
+      naSala.dados.materias.map((m) => m.aulas.map((a) => a.titulo)).flat().sort(),
+      ['Primeira visita ao campo', 'Registro cursivo'],
+      'o aluno vê o mural das duas matérias',
+    );
+
+    // Helena alcança a sala, mas o mural dela mostra só a matéria dela.
+    const daHelena = await helena(`/api/turmas/${sala.turma.id}/mural`);
+    assert.deepEqual(daHelena.dados.materias.map((m) => m.nome), ['Estágio supervisionado']);
+    assert.equal(
+      (await helena(`/api/materias/${sala.materias[0].id}/mural`)).status, 404,
+      'a matéria do colega não é dela',
+    );
+
+    // E ela enxerga os alunos da sala, porque também dá aula para eles.
+    const alunos = await helena('/api/turma');
+    assert.deepEqual(alunos.dados.alunos.map((a) => a.nome), ['Ana']);
+
+    // Mas a sala não é dela: mexer na turma em si continua sendo de quem criou.
+    const tentativa = await helena(`/api/turmas/${sala.turma.id}`, {
+      metodo: 'PUT', corpo: { nome: 'Turma da Helena' },
+    });
+    assert.equal(tentativa.status, 403);
+    assert.equal((await helena(`/api/turmas/${sala.turma.id}`, { metodo: 'DELETE' })).status, 403);
+  });
+});
+
+test('o professor tem matérias em salas diferentes e publica para as duas de uma vez', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const manha = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: '3A', materia: 'Observação' } })).dados;
+    const noite = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: '3B', materia: 'Observação' } })).dados;
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', manha.turma.codigo);
+    const bruno = await criarAluno(base, 'Bruno', 'bruno@ex.br', noite.turma.codigo);
+
+    const minhas = await admin('/api/materias');
+    assert.deepEqual(minhas.dados.materias.map((m) => m.turma_nome).sort(), ['3A', '3B']);
+
+    const aula = await admin('/api/aulas', {
+      metodo: 'POST',
+      corpo: { materia_ids: minhas.dados.materias.map((m) => m.id), titulo: 'Aula 3' },
+    });
+    assert.equal(aula.status, 201, JSON.stringify(aula.dados));
+    assert.equal((await ana(`/api/turmas/${manha.turma.id}/mural`)).dados.aulas.length, 1);
+    assert.equal((await bruno(`/api/turmas/${noite.turma.id}/mural`)).dados.aulas.length, 1);
+  });
+});
+
+test('matéria com aula não some por engano', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const sala = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: '3A', materia: 'Observação' } })).dados;
+    const materiaId = sala.materias[0].id;
+    await admin('/api/aulas', { metodo: 'POST', corpo: { materia_ids: [materiaId], titulo: 'Aula 1' } });
+
+    const recusa = await admin(`/api/materias/${materiaId}`, { metodo: 'DELETE' });
+    assert.equal(recusa.status, 409);
+    assert.match(recusa.dados.erro, /Apague-as antes/);
+
+    const nova = await admin('/api/materias', {
+      metodo: 'POST', corpo: { turma_id: sala.turma.id, nome: 'Seminário' },
+    });
+    assert.equal((await admin(`/api/materias/${nova.dados.materia.id}`, { metodo: 'DELETE' })).status, 200);
+  });
+});
+
+test('matéria comum não gera horas; matéria de estágio gera', async () => {
   await comAmbiente(async ({ base }) => {
     const admin = await criarProfessor(base);
     const disciplina = (await admin('/api/turmas', {
-      metodo: 'POST', corpo: { nome: 'Psicologia do Desenvolvimento', conta_horas: false },
-    })).dados.turma;
+      metodo: 'POST', corpo: { nome: '3A — Psicologia', materia: 'Psicologia do Desenvolvimento' },
+    })).dados;
     const estagio = (await admin('/api/turmas', {
-      metodo: 'POST', corpo: { nome: 'Estágio supervisionado', conta_horas: true, meta_horas: 300 },
-    })).dados.turma;
+      metodo: 'POST',
+      corpo: { nome: 'Estágio 2026', materia: 'Estágio supervisionado', conta_horas: true, meta_horas: 300 },
+    })).dados;
 
-    assert.equal(disciplina.conta_horas, 0);
-    assert.equal(estagio.conta_horas, 1);
+    assert.equal(disciplina.materias[0].conta_horas, 0);
+    assert.equal(estagio.materias[0].conta_horas, 1);
 
-    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', disciplina.codigo);
-    const bruno = await criarAluno(base, 'Bruno', 'bruno@ex.br', estagio.codigo);
-    assert.equal((await ana('/api/eu')).dados.conta_horas, false, 'aluno de disciplina não vê horas');
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', disciplina.turma.codigo);
+    const bruno = await criarAluno(base, 'Bruno', 'bruno@ex.br', estagio.turma.codigo);
+    assert.equal((await ana('/api/eu')).dados.conta_horas, false, 'sala só de disciplina não mostra horas');
     assert.equal((await bruno('/api/eu')).dados.conta_horas, true);
 
-    // A turma pode passar a contar depois, sem recriar nada.
-    const virou = await admin(`/api/turmas/${disciplina.id}`, {
-      metodo: 'PUT', corpo: { nome: 'Psicologia do Desenvolvimento', conta_horas: true, meta_horas: 100 },
+    // A matéria pode passar a contar depois, sem recriar nada.
+    const virou = await admin(`/api/materias/${disciplina.materias[0].id}`, {
+      metodo: 'PUT', corpo: { conta_horas: true },
     });
-    assert.equal(virou.dados.turma.conta_horas, 1);
+    assert.equal(virou.dados.materia.conta_horas, 1);
     assert.equal((await ana('/api/eu')).dados.conta_horas, true);
   });
 });

@@ -28,11 +28,9 @@ const tabelas = (banco) =>
 const colunas = (banco, tabela) =>
   banco.prepare(`PRAGMA table_info(${tabela})`).all().map((c) => c.name);
 
-function bancoMigrado() {
-  const db = new DatabaseSync(':memory:');
-  db.exec(fs.readFileSync('test/esquema-inicial.sql', 'utf8'));
+const migracoes = () => fs.readdirSync('migracoes').filter((f) => f.endsWith('.sql')).sort();
 
-  const arquivos = fs.readdirSync('migracoes').filter((f) => f.endsWith('.sql')).sort();
+function aplicar(db, arquivos) {
   for (const arquivo of arquivos) {
     for (const comando of comandos(fs.readFileSync(path.join('migracoes', arquivo), 'utf8'))) {
       try {
@@ -42,6 +40,13 @@ function bancoMigrado() {
       }
     }
   }
+}
+
+function bancoMigrado() {
+  const db = new DatabaseSync(':memory:');
+  db.exec(fs.readFileSync('test/esquema-inicial.sql', 'utf8'));
+  const arquivos = migracoes();
+  aplicar(db, arquivos);
   return { db, arquivos };
 }
 
@@ -69,15 +74,7 @@ test('rodar as migrações duas vezes não quebra nada', () => {
   const { db } = bancoMigrado();
   const antes = tabelas(db).sort();
 
-  for (const arquivo of fs.readdirSync('migracoes').filter((f) => f.endsWith('.sql')).sort()) {
-    for (const comando of comandos(fs.readFileSync(path.join('migracoes', arquivo), 'utf8'))) {
-      try {
-        db.exec(comando);
-      } catch (e) {
-        assert.match(e.message, TOLERAVEL, `na segunda passada: ${e.message}`);
-      }
-    }
-  }
+  aplicar(db, migracoes());
   assert.deepEqual(tabelas(db).sort(), antes);
 });
 
@@ -115,4 +112,56 @@ test('o banco migrado aceita o uso normal do sistema', () => {
     .get();
   assert.equal(linha.total, 1);
   assert.equal(linha.aprovadas, 0);
+});
+
+// Estrutura certa não basta: o conteúdo antigo precisa chegar do outro lado. A
+// turma vira sala com uma matéria, e o que estava preso à turma passa para ela.
+test('a migração das matérias leva junto as aulas, as tarefas e os materiais', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(fs.readFileSync('test/esquema-inicial.sql', 'utf8'));
+  aplicar(db, migracoes().filter((a) => a < '012'));
+
+  const agora = new Date().toISOString();
+  db.exec(`
+    INSERT INTO usuarios(id, nome, email, senha_hash, papel, criado_em)
+      VALUES(1, 'Marina', 'm@x.br', 'h', 'professor', '${agora}');
+    INSERT INTO turmas(id, nome, codigo, professor_id, meta_horas, conta_horas, criado_em)
+      VALUES(1, '3A', 'AAA111', 1, 200, 0, '${agora}'), (2, 'Estágio', 'BBB222', 1, 300, 1, '${agora}');
+    INSERT INTO aulas(id, turma_id, titulo, criada_em, atualizada_em)
+      VALUES(1, 1, 'Aula 3', '${agora}', '${agora}');
+    INSERT INTO aulas_turmas(aula_id, turma_id) VALUES(1, 1), (1, 2);
+    INSERT INTO tarefas(id, turma_id, aula_id, titulo, criada_em, atualizada_em)
+      VALUES(1, 1, 1, 'Registro', '${agora}', '${agora}');
+    INSERT INTO tarefas_turmas(tarefa_id, turma_id) VALUES(1, 1), (1, 2);
+    INSERT INTO materiais(id, turma_id, aula_id, tipo, titulo, criado_em)
+      VALUES(1, 1, 1, 'link', 'Roteiro', '${agora}');
+  `);
+
+  aplicar(db, ['012-materias-por-turma.sql']);
+
+  const nomes = (sql) => db.prepare(sql).all().map((l) => l.nome).sort();
+  assert.deepEqual(
+    db.prepare('SELECT nome, conta_horas FROM materias ORDER BY id').all()
+      .map((m) => `${m.nome}: ${m.conta_horas}`),
+    ['3A: 0', 'Estágio: 1'],
+    'cada turma virou uma sala com uma matéria, e o "gera horas" veio junto',
+  );
+  const ligadas = `SELECT m.nome FROM aulas_materias am JOIN materias m ON m.id = am.materia_id`;
+  assert.deepEqual(nomes(ligadas), ['3A', 'Estágio'], 'a aula continua nas duas turmas');
+  assert.deepEqual(
+    nomes(`SELECT m.nome FROM tarefas_materias tm JOIN materias m ON m.id = tm.materia_id`),
+    ['3A', 'Estágio'],
+  );
+  assert.equal(db.prepare('SELECT materia_id FROM materiais WHERE id = 1').get().materia_id, 1);
+
+  // Depois que um colega abre a matéria dele na mesma sala, rodar de novo não
+  // pode empurrar as aulas antigas para dentro dela.
+  db.exec(`
+    INSERT INTO usuarios(id, nome, email, senha_hash, papel, criado_em)
+      VALUES(3, 'Helena', 'h@x.br', 'h', 'professor', '${agora}');
+    INSERT INTO materias(turma_id, nome, professor_id, conta_horas, criada_em)
+      VALUES(1, 'Estatística', 3, 0, '${agora}');
+  `);
+  aplicar(db, ['012-materias-por-turma.sql']);
+  assert.deepEqual(nomes(ligadas), ['3A', 'Estágio'], 'a matéria da colega não herdou nada');
 });

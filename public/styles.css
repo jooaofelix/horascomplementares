@@ -240,6 +240,8 @@ button.mini { min-height: 42px; padding: 8px 16px; font-size: 15px; }
   button { width: auto; }
   .acoes button { flex: 0 0 auto; }
   .grade { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  /* A sala mostra as matérias e os formulários dela: cabe mais largura. */
+  #lista-turmas { grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); }
   .atividade { padding: 20px; }
   .entrada { margin-top: 48px; }
 }
@@ -273,6 +275,20 @@ button.mini { min-height: 42px; padding: 8px 16px; font-size: 15px; }
   margin: 0 0 12px; display: flex; align-items: center; gap: 12px;
 }
 .bloco > h2::after { content: ''; flex: 1; height: 1px; background: var(--borda); }
+
+/* A matéria dentro da sala: um cartão mais leve, com o filete da área. */
+.materia {
+  border: 1px solid var(--borda); border-left: 3px solid var(--turmas);
+  border-radius: 12px; padding: 14px; margin-bottom: 10px; background: var(--superficie);
+}
+.materia .nome { font-weight: 650; }
+.materia.de-colega { border-left-color: var(--suave); background: transparent; }
+
+.bloco > h3 {
+  font-size: 15px; text-transform: uppercase; letter-spacing: .08em; color: var(--suave);
+  margin: 0 0 12px; display: flex; align-items: center; gap: 12px;
+}
+.bloco > h3::after { content: ''; flex: 1; height: 1px; background: var(--borda); }
 
 .destaque {
   background: linear-gradient(180deg, var(--horas-fundo), var(--superficie) 70%);

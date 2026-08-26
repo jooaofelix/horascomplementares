@@ -26,7 +26,10 @@ const estado = {
   mural: null,
   cursos: [],
   usuarios: [],
+  materias: [],
+  minhasMaterias: [],
   turmaFiltro: '',
+  materiaFiltro: '',
   limiteArquivo: 0,
   papelCadastro: 'aluno',
 };
@@ -110,8 +113,13 @@ $('#cad-codigo-turma').addEventListener('input', (e) => {
   conferindo = setTimeout(async () => {
     try {
       const { turma } = await api('/api/turmas/localizar', { metodo: 'POST', corpo: { codigo } });
+      // Mostra a sala e as matérias que vêm com ela, para o aluno conferir antes.
       caixa.innerHTML = `Turma <strong>${escapar(turma.nome)}</strong>${
-        turma.professor_nome ? ' · Prof(a). ' + escapar(turma.professor_nome) : ''
+        (turma.materias || []).length
+          ? '<br><span class="sub">' + turma.materias
+              .map((m) => `${escapar(m.nome)} — ${escapar(m.professor_nome || 'sem professor')}`)
+              .join('<br>') + '</span>'
+          : turma.professor_nome ? ' · Prof(a). ' + escapar(turma.professor_nome) : ''
       }`;
       caixa.classList.remove('oculto');
     } catch {
@@ -487,7 +495,7 @@ $$('#abas-professor button').forEach((botao) => {
     }
     $('#filtro-turma-cartao').classList.toggle(
       'oculto',
-      !['turma', 'registros', 'aulas'].includes(botao.dataset.aba) || estado.turmas.length < 2,
+      !['turma', 'registros', 'aulas'].includes(botao.dataset.aba) || estado.materias.length < 2,
     );
 
     // Trocar de aba busca o estado atual: um aluno pode ter entrado na turma
@@ -499,7 +507,10 @@ $$('#abas-professor button').forEach((botao) => {
 });
 
 $('#filtro-turma').addEventListener('change', async (e) => {
-  estado.turmaFiltro = e.target.value;
+  estado.materiaFiltro = e.target.value;
+  const materia = estado.materias.find((m) => String(m.id) === String(estado.materiaFiltro));
+  // A matéria escolhida também decide de qual turma são os alunos e as horas.
+  estado.turmaFiltro = materia ? String(materia.turma_id) : '';
   await carregarProfessor();
 });
 
@@ -510,7 +521,7 @@ function desenharResumoProfessor() {
     ? [...estado.mural.aulas.flatMap((a) => a.tarefas), ...estado.mural.avulsos.tarefas]
         .reduce((total, t) => total + (t.a_avaliar || 0), 0)
     : 0;
-  const comHoras = estado.turmas.some((t) => t.conta_horas);
+  const comHoras = estado.materias.some((m) => m.conta_horas);
 
   const pecas = [
     ['var(--alunos)', alunos.length, alunos.length === 1 ? 'aluno na seleção' : 'alunos na seleção'],
@@ -542,7 +553,7 @@ function desenharAlunos() {
                  <span><b>${horas(a.declarado)}</b> lançadas</span>
                  <span>meta ${horas(meta)}</span>
                  ${a.pendentes > 0 ? `<span class="selo esperando">${a.pendentes} a validar</span>` : ''}`
-              : '<span class="sub">turma sem horas complementares</span>'}
+              : '<span class="sub">sala sem matéria que gere horas</span>'}
           </div>
           <details style="margin-top:12px">
             <summary data-anotacoes="${a.id}" style="cursor:pointer;color:var(--alunos);font-weight:600;font-size:15px">
@@ -664,32 +675,70 @@ $('#filtro-status-prof').addEventListener('change', desenharListaProfessor);
 
 function desenharTurmas() {
   $('#lista-turmas').innerHTML = estado.turmas.length
-    ? estado.turmas.map((t) => `<div class="item">
+    ? estado.turmas.map((t) => `<div class="item" data-area="turmas">
         <div class="nome">${escapar(t.nome)}</div>
-        <div class="sub">
-          ${escapar(t.periodo || 'sem período')} · ${t.alunos} aluno(s)
-          ${t.conta_horas ? '· <span style="color:var(--horas);font-weight:600">gera horas complementares</span>' : ''}
-        </div>
+        <div class="sub">${escapar(t.periodo || 'sem período')} · ${t.alunos} aluno(s)</div>
         <div class="codigo-turma">
           <span class="valor">${escapar(t.codigo || '——')}</span>
           <button class="secundario mini" data-copiar="${escapar(t.codigo || '')}">Copiar convite</button>
         </div>
-        <div class="linha">
-          <div class="campo"><label>Nome</label><input data-turma-nome="${t.id}" value="${escapar(t.nome)}"></div>
-          <div class="campo"><label>Período</label><input data-turma-periodo="${t.id}" value="${escapar(t.periodo || '')}"></div>
-          <div class="campo"><label>Meta (h)</label><input data-turma-meta="${t.id}" type="number" min="1" inputmode="numeric" value="${t.meta_horas}"></div>
+
+        <div class="bloco">
+          <h3>Matérias desta turma</h3>
+          ${(t.materias || []).length
+            ? t.materias.map((m) => materiaEditavel(m)).join('')
+            : '<p class="vazio">Nenhuma matéria ainda.</p>'}
+          <div class="linha" style="margin-top:12px">
+            <div class="campo">
+              <label>Nova matéria nesta turma</label>
+              <input data-nova-materia="${t.id}" maxlength="120" placeholder="Ex.: Psicologia Social">
+            </div>
+          </div>
+          <label class="opcao-turma" style="margin-bottom:10px">
+            <input type="checkbox" data-nova-materia-conta="${t.id}">
+            <span>Gera horas complementares</span>
+          </label>
+          <button class="secundario mini" data-add-materia="${t.id}">Adicionar matéria</button>
         </div>
-        <label class="opcao-turma" style="margin-bottom:10px">
-          <input type="checkbox" data-turma-conta="${t.id}" ${t.conta_horas ? 'checked' : ''}>
-          <span>Gera horas complementares</span>
-        </label>
-        <div class="acoes">
-          <button class="secundario mini" data-salvar-turma="${t.id}">Salvar</button>
-          <button class="perigo mini" data-excluir-turma="${t.id}">Excluir</button>
-        </div>
+
+        ${t.posso_editar ? `<div class="bloco">
+          <h3>Dados da turma</h3>
+          <div class="linha">
+            <div class="campo"><label>Nome</label><input data-turma-nome="${t.id}" value="${escapar(t.nome)}"></div>
+            <div class="campo"><label>Período</label><input data-turma-periodo="${t.id}" value="${escapar(t.periodo || '')}"></div>
+            <div class="campo"><label>Meta (h)</label><input data-turma-meta="${t.id}" type="number" min="1" inputmode="numeric" value="${t.meta_horas}"></div>
+          </div>
+          <div class="acoes">
+            <button class="secundario mini" data-salvar-turma="${t.id}">Salvar</button>
+            <button class="perigo mini" data-excluir-turma="${t.id}">Excluir turma</button>
+          </div>
+        </div>` : `<p class="sub">Turma de ${escapar(t.professor_nome || 'outro professor')} — você cuida da sua matéria nela.</p>`}
       </div>`).join('')
     : '<p class="vazio">Você ainda não tem turmas. Crie a primeira acima.</p>';
 }
+
+// A matéria do colega aparece, mas só quem dá ela é que edita.
+const materiaEditavel = (m) => m.posso_editar
+  ? `<div class="materia">
+      <div class="linha">
+        <div class="campo"><label>Matéria</label><input data-materia-nome="${m.id}" value="${escapar(m.nome)}"></div>
+      </div>
+      <label class="opcao-turma" style="margin-bottom:10px">
+        <input type="checkbox" data-materia-conta="${m.id}" ${m.conta_horas ? 'checked' : ''}>
+        <span>Gera horas complementares <span class="sub">— estágio, extensão, monitoria</span></span>
+      </label>
+      <div class="acoes">
+        <button class="secundario mini" data-salvar-materia="${m.id}">Salvar matéria</button>
+        <button class="perigo mini" data-excluir-materia="${m.id}">Excluir</button>
+      </div>
+    </div>`
+  : `<div class="materia de-colega">
+      <div class="nome">${escapar(m.nome)}</div>
+      <div class="sub">
+        ${escapar(m.professor_nome || 'sem professor')}
+        ${m.conta_horas ? '· <span style="color:var(--horas);font-weight:600">gera horas</span>' : ''}
+      </div>
+    </div>`;
 
 $('#btn-criar-turma').onclick = async () => {
   try {
@@ -697,6 +746,7 @@ $('#btn-criar-turma').onclick = async () => {
       metodo: 'POST',
       corpo: {
         nome: $('#nova-turma-nome').value,
+        materia: $('#nova-turma-materia').value,
         periodo: $('#nova-turma-periodo').value,
         curso_id: $('#nova-turma-curso').value || null,
         meta_horas: $('#nova-turma-meta').value || undefined,
@@ -704,6 +754,7 @@ $('#btn-criar-turma').onclick = async () => {
       },
     });
     $('#nova-turma-nome').value = '';
+    $('#nova-turma-materia').value = '';
     $('#nova-turma-periodo').value = '';
     await carregarProfessor();
     avisar('Turma criada. Passe o código para os alunos.', 'ok');
@@ -712,13 +763,67 @@ $('#btn-criar-turma').onclick = async () => {
   }
 };
 
+// Entrar na sala de um colega: o código é o mesmo que o aluno usa.
+$('#btn-entrar-turma').onclick = async () => {
+  try {
+    const { turma } = await api('/api/materias', {
+      metodo: 'POST',
+      corpo: {
+        codigo_turma: $('#entrar-codigo').value,
+        nome: $('#entrar-materia').value,
+        conta_horas: $('#entrar-conta').checked,
+      },
+    });
+    $('#entrar-codigo').value = '';
+    $('#entrar-materia').value = '';
+    $('#entrar-conta').checked = false;
+    await carregarProfessor();
+    avisar(`Sua matéria entrou em ${turma.nome}.`, 'ok');
+  } catch (err) {
+    falhar(err);
+  }
+};
+
 $('#lista-turmas').addEventListener('click', async (e) => {
-  const { salvarTurma, excluirTurma, copiar } = e.target.dataset;
+  const {
+    salvarTurma, excluirTurma, copiar, addMateria, salvarMateria, excluirMateria,
+  } = e.target.dataset;
   try {
     if (copiar !== undefined) {
-      const convite = `Entre no controle de horas complementares: ${location.origin} — código da turma: ${copiar}`;
+      const convite = `Entre na nossa sala: ${location.origin} — código da turma: ${copiar}`;
       await navigator.clipboard.writeText(convite);
       avisar('Convite copiado — cole no grupo da turma.', 'ok');
+    }
+    if (addMateria) {
+      const nome = $(`[data-nova-materia="${addMateria}"]`).value;
+      if (!nome.trim()) return avisar('Dê um nome à matéria.');
+      await api('/api/materias', {
+        metodo: 'POST',
+        corpo: {
+          turma_id: Number(addMateria),
+          nome,
+          conta_horas: $(`[data-nova-materia-conta="${addMateria}"]`).checked,
+        },
+      });
+      await carregarProfessor();
+      avisar('Matéria criada.', 'ok');
+    }
+    if (salvarMateria) {
+      await api(`/api/materias/${salvarMateria}`, {
+        metodo: 'PUT',
+        corpo: {
+          nome: $(`[data-materia-nome="${salvarMateria}"]`).value,
+          conta_horas: $(`[data-materia-conta="${salvarMateria}"]`).checked,
+        },
+      });
+      await carregarProfessor();
+      avisar('Matéria atualizada.', 'ok');
+    }
+    if (excluirMateria) {
+      if (!confirm('Excluir esta matéria?')) return;
+      await api(`/api/materias/${excluirMateria}`, { metodo: 'DELETE' });
+      await carregarProfessor();
+      avisar('Matéria excluída.', 'ok');
     }
     if (salvarTurma) {
       await api(`/api/turmas/${salvarTurma}`, {
@@ -727,14 +832,13 @@ $('#lista-turmas').addEventListener('click', async (e) => {
           nome: $(`[data-turma-nome="${salvarTurma}"]`).value,
           periodo: $(`[data-turma-periodo="${salvarTurma}"]`).value,
           meta_horas: $(`[data-turma-meta="${salvarTurma}"]`).value,
-          conta_horas: $(`[data-turma-conta="${salvarTurma}"]`).checked,
         },
       });
       await carregarProfessor();
       avisar('Turma atualizada.', 'ok');
     }
     if (excluirTurma) {
-      if (!confirm('Excluir esta turma?')) return;
+      if (!confirm('Excluir esta turma inteira, com as matérias dela?')) return;
       await api(`/api/turmas/${excluirTurma}`, { metodo: 'DELETE' });
       await carregarProfessor();
       avisar('Turma excluída.', 'ok');
@@ -1134,14 +1238,16 @@ function blocoMaterial(m, comRemover) {
   </div>`;
 }
 
-function blocoTarefaAluno(t) {
+function blocoTarefaAluno(t, materiaNome = '') {
   const entrega = t.minha_entrega;
   return `<div class="item" style="margin-bottom:10px">
     <div class="cabecalho">
       <span class="titulo">${escapar(t.titulo)}</span>
       ${entrega ? SELO_ENTREGA[entrega.status] : '<span class="selo esperando">a entregar</span>'}
     </div>
-    <div class="sub">${prazoTexto(t.prazo)}${t.horas_sugeridas ? ' · vale ' + horas(t.horas_sugeridas) : ''}</div>
+    <div class="sub">
+      ${materiaNome ? escapar(materiaNome) + ' · ' : ''}${prazoTexto(t.prazo)}${t.horas_sugeridas ? ' · vale ' + horas(t.horas_sugeridas) : ''}
+    </div>
     ${t.enunciado ? `<p style="margin:10px 0 0">${escapar(t.enunciado)}</p>` : ''}
     ${entrega?.observacao ? `<div class="observacao"><strong>Professor:</strong> ${escapar(entrega.observacao)}</div>` : ''}
     ${entrega?.status === 'aceita'
@@ -1160,7 +1266,10 @@ function blocoTarefaAluno(t) {
 
 function desenharMuralAluno() {
   const mural = estado.mural;
-  const temAlgo = mural && (mural.aulas.length || mural.avulsos.materiais.length || mural.avulsos.tarefas.length);
+  const materias = mural?.materias ?? [];
+  const temAlgo = materias.some(
+    (m) => m.aulas.length || m.avulsos.materiais.length || m.avulsos.tarefas.length,
+  );
   $('#cartao-mural-aluno').classList.toggle('oculto', !temAlgo);
   if (!temAlgo) return;
 
@@ -1173,19 +1282,35 @@ function desenharMuralAluno() {
       ${tarefas.length ? `<div style="margin-top:12px">${tarefas.map(blocoTarefaAluno).join('')}</div>` : ''}
     </div>`;
 
-  const pendentes = [...mural.aulas.flatMap((a) => a.tarefas), ...mural.avulsos.tarefas]
-    .filter((t) => !t.minha_entrega || t.minha_entrega.status === 'devolvida');
+  // O que falta entregar vem primeiro, de todas as matérias juntas, com o nome
+  // da matéria em cada tarefa — é a pergunta que o aluno faz ao abrir o app.
+  const pendentes = materias.flatMap((m) =>
+    [...m.aulas.flatMap((a) => a.tarefas), ...m.avulsos.tarefas]
+      .filter((t) => !t.minha_entrega || t.minha_entrega.status === 'devolvida')
+      .map((t) => ({ ...t, materia_nome: m.nome })));
+
+  const daMateria = (m) => {
+    const corpo = [
+      ...m.aulas.map((a) => secao(a.titulo, a.data_aula ? dataBr(a.data_aula) : '', a.materiais, a.tarefas, a.descricao)),
+      (m.avulsos.materiais.length || m.avulsos.tarefas.length)
+        ? secao('Material e tarefas soltas', '', m.avulsos.materiais, m.avulsos.tarefas, null)
+        : '',
+    ].join('');
+    if (!corpo) return '';
+    return `<div class="bloco">
+      <span class="etiqueta">${escapar(m.professor_nome || 'sem professor')}</span>
+      <h2>${escapar(m.nome)}${m.conta_horas ? ' <span class="selo ok">gera horas</span>' : ''}</h2>
+      ${corpo}
+    </div>`;
+  };
 
   $('#mural-aluno').innerHTML = [
     pendentes.length
-      ? `<div class="bloco"><h2>Para entregar</h2>${pendentes.map(blocoTarefaAluno).join('')}</div>`
+      ? `<div class="bloco"><h2>Para entregar</h2>${pendentes
+          .map((t) => blocoTarefaAluno(t, t.materia_nome))
+          .join('')}</div>`
       : '',
-    mural.aulas.length ? '<div class="bloco"><h2>Aulas</h2>' : '',
-    ...mural.aulas.map((a) => secao(a.titulo, a.data_aula ? dataBr(a.data_aula) : '', a.materiais, a.tarefas, a.descricao)),
-    mural.aulas.length ? '</div>' : '',
-    (mural.avulsos.materiais.length || mural.avulsos.tarefas.length)
-      ? secao('Material e tarefas da turma', '', mural.avulsos.materiais, mural.avulsos.tarefas, null)
-      : '',
+    ...materias.map(daMateria),
   ].join('');
 }
 
@@ -1235,21 +1360,24 @@ function blocoTarefaProfessor(t) {
 function desenharEscolhaTurmas() {
   const caixa = $('#nova-aula-turmas');
   if (!caixa) return;
-  caixa.innerHTML = estado.turmas.length
-    ? estado.turmas.map((t) => `<label class="opcao-turma">
-        <input type="checkbox" value="${t.id}" ${String(t.id) === String(estado.turmaFiltro) || estado.turmas.length === 1 ? 'checked' : ''}>
-        <span>${escapar(t.nome)}${t.periodo ? ` <span class="sub">· ${escapar(t.periodo)}</span>` : ''}</span>
+  const minhas = estado.minhasMaterias;
+  const marcada = (m) => String(m.id) === String(estado.materiaFiltro) || minhas.length === 1;
+  caixa.innerHTML = minhas.length
+    ? minhas.map((m) => `<label class="opcao-turma">
+        <input type="checkbox" value="${m.id}" ${marcada(m) ? 'checked' : ''}>
+        <span>${escapar(m.nome)} <span class="sub">· ${escapar(m.turma_nome)}</span></span>
       </label>`).join('')
-    : '<p class="vazio">Crie uma turma antes de publicar aulas.</p>';
+    : '<p class="vazio">Crie uma turma com a sua matéria antes de publicar aulas.</p>';
 }
 
-const turmasMarcadas = () =>
+const materiasMarcadas = () =>
   Array.from(document.querySelectorAll('#nova-aula-turmas input:checked')).map((c) => Number(c.value));
 
 function desenharMuralProfessor() {
   const mural = estado.mural;
   if (!mural) {
-    $('#mural-professor').innerHTML = '<div class="cartao"><p class="vazio">Escolha uma turma para ver as aulas.</p></div>';
+    $('#mural-professor').innerHTML =
+      '<div class="cartao"><p class="vazio">Escolha uma matéria para ver as aulas.</p></div>';
     return;
   }
   const categorias = estado.categorias.filter((c) => c.ativa)
@@ -1262,7 +1390,7 @@ function desenharMuralProfessor() {
         ${publicada === 0 ? '<span class="selo esperando">rascunho</span>' : ''}
       </div>
       ${sub ? `<p class="explicacao" style="margin-bottom:8px">${escapar(sub)}</p>` : ''}
-      ${turmasDaAula ? `<p class="sub" style="margin:-4px 0 12px">Turmas: ${escapar(turmasDaAula)}</p>` : ''}
+      ${turmasDaAula ? `<p class="sub" style="margin:-4px 0 12px">Também em: ${escapar(turmasDaAula)}</p>` : ''}
       ${descricao ? `<p style="margin:0 0 14px">${escapar(descricao)}</p>` : ''}
 
       ${materiais.length ? materiais.map((m) => blocoMaterial(m, true)).join('') : '<p class="vazio">Sem material ainda.</p>'}
@@ -1303,34 +1431,40 @@ function desenharMuralProfessor() {
     </div>`;
 
   $('#mural-professor').innerHTML = [
+    `<div class="bloco"><h2>${escapar(mural.materia?.nome || 'Matéria')}</h2>
+       <p class="explicacao">${escapar(mural.turma?.nome || '')}${
+         mural.materia?.conta_horas ? ' · as tarefas aceitas viram horas complementares' : ''}</p></div>`,
     ...mural.aulas.map((a) => bloco(
       a.titulo, a.data_aula ? dataBr(a.data_aula) : '', a.id, a.materiais, a.tarefas, a.descricao, a.publicada,
-      (a.turmas ?? []).map((t) => t.nome).join(' · '),
+      // Só vale dizer onde mais a aula está quando ela vai para mais de uma.
+      (a.materias ?? []).length > 1
+        ? a.materias.filter((m) => m.id !== mural.materia?.id).map((m) => `${m.nome} — ${m.turma_nome}`).join(' · ')
+        : '',
     )),
-    bloco('Material e tarefas da turma', 'Sem vínculo com uma aula específica', '',
+    bloco('Material e tarefas soltas', 'Sem vínculo com uma aula específica', '',
       mural.avulsos.materiais, mural.avulsos.tarefas, null, 1),
   ].join('');
 }
 
 async function carregarMuralProfessor() {
-  const turmaId = estado.turmaFiltro || estado.turmas[0]?.id;
-  if (!turmaId) {
+  const materiaId = estado.materiaFiltro || estado.materias[0]?.id;
+  if (!materiaId) {
     estado.mural = null;
   } else {
-    estado.mural = await api(`/api/turmas/${turmaId}/mural`);
-    estado.mural.turma_id = turmaId;
+    estado.mural = await api(`/api/materias/${materiaId}/mural`);
+    estado.mural.materia_id = Number(materiaId);
   }
   desenharMuralProfessor();
 }
 
 $('#btn-criar-aula').onclick = async () => {
-  const turmas = turmasMarcadas();
-  if (!turmas.length) return avisar('Marque ao menos uma turma para receber a aula.');
+  const materias = materiasMarcadas();
+  if (!materias.length) return avisar('Marque ao menos uma matéria para receber a aula.');
   try {
     await api('/api/aulas', {
       metodo: 'POST',
       corpo: {
-        turma_ids: turmas,
+        materia_ids: materias,
         titulo: $('#nova-aula-titulo').value,
         data_aula: $('#nova-aula-data').value,
         descricao: $('#nova-aula-descricao').value,
@@ -1341,7 +1475,12 @@ $('#btn-criar-aula').onclick = async () => {
     $('#nova-aula-titulo').value = '';
     $('#nova-aula-descricao').value = '';
     $('#nova-aula-arquivo').value = '';
-    await carregarMuralProfessor();
+    // O mural mostra uma matéria por vez: cai na primeira que acabou de receber
+    // a aula, senão o professor publica e não vê nada mudar.
+    estado.materiaFiltro = String(materias[0]);
+    const escolhida = estado.materias.find((m) => String(m.id) === estado.materiaFiltro);
+    estado.turmaFiltro = escolhida ? String(escolhida.turma_id) : '';
+    await carregarProfessor();
     avisar('Aula publicada.', 'ok');
   } catch (err) {
     falhar(err);
@@ -1350,7 +1489,7 @@ $('#btn-criar-aula').onclick = async () => {
 
 $('#mural-professor').addEventListener('click', async (e) => {
   const d = e.target.dataset;
-  const turmaId = estado.mural?.turma_id;
+  const materiaId = estado.mural?.materia_id;
   try {
     if (d.addMaterial !== undefined) {
       const chave = d.addMaterial;
@@ -1360,7 +1499,7 @@ $('#mural-professor').addEventListener('click', async (e) => {
       await api('/api/materiais', {
         metodo: 'POST',
         corpo: {
-          turma_id: turmaId,
+          materia_id: materiaId,
           aula_id: chave || null,
           tipo: arquivo ? 'arquivo' : 'link',
           titulo: $(`[data-mat-titulo="${chave}"]`).value || arquivo?.nome || url,
@@ -1377,7 +1516,7 @@ $('#mural-professor').addEventListener('click', async (e) => {
       await api('/api/tarefas', {
         metodo: 'POST',
         corpo: {
-          turma_id: turmaId,
+          materia_id: materiaId,
           aula_id: chave || null,
           titulo: $(`[data-tar-titulo="${chave}"]`).value,
           enunciado: $(`[data-tar-enunciado="${chave}"]`).value,
@@ -1474,18 +1613,29 @@ async function carregarProfessor() {
   estado.atividades = registros.atividades;
   estado.alunos = turma.alunos;
   estado.turmas = turma.turmas;
+  // As matérias que este usuário administra, com a turma junto: é por elas que
+  // ele navega. Publicar é mais estrito — só nas que ele mesmo dá.
+  estado.materias = estado.turmas.flatMap((t) =>
+    (t.materias || [])
+      .filter((m) => m.posso_editar)
+      .map((m) => ({ ...m, turma_nome: t.nome, periodo: t.periodo })));
+  estado.minhasMaterias = estado.materias.filter((m) => m.minha);
 
   $('#filtro-turma').innerHTML = [
-    '<option value="">Todas as turmas</option>',
+    '<option value="">Todas as matérias</option>',
     ...estado.turmas.map((t) => {
-      const rotulo = t.periodo ? `${t.nome} — ${t.periodo}` : t.nome;
-      return `<option value="${t.id}" ${String(t.id) === String(estado.turmaFiltro) ? 'selected' : ''}>${escapar(rotulo)}</option>`;
+      const minhas = estado.materias.filter((m) => m.turma_id === t.id);
+      if (!minhas.length) return '';
+      return `<optgroup label="${escapar(t.periodo ? `${t.nome} — ${t.periodo}` : t.nome)}">${
+        minhas.map((m) =>
+          `<option value="${m.id}" ${String(m.id) === String(estado.materiaFiltro) ? 'selected' : ''}>${escapar(m.nome)}</option>`,
+        ).join('')}</optgroup>`;
     }),
   ].join('');
   const abaAtiva = document.querySelector('#abas-professor button.ativa')?.dataset.aba;
   $('#filtro-turma-cartao').classList.toggle(
     'oculto',
-    estado.turmas.length < 2 || !['turma', 'registros'].includes(abaAtiva),
+    estado.materias.length < 2 || !['turma', 'registros'].includes(abaAtiva),
   );
 
   desenharAlunos();
@@ -1535,12 +1685,14 @@ async function iniciar() {
     if (u.papel === 'admin') await carregarAdmin();
     if (u.pode_convidar) await carregarConvites();
   } else {
-    const prof = dados.professor;
-    $('#titulo-app').textContent = prof?.instituicao || 'Sala de Aula';
+    const materias = dados.materias || [];
+    $('#titulo-app').textContent = materias.find((m) => m.instituicao)?.instituicao || 'Sala de Aula';
     $('#identificacao').textContent = [u.nome, u.turma_nome].filter(Boolean).join(' · ');
     $('#identificacao-config').textContent = $('#identificacao').textContent;
+    // O aluno tem vários professores: quem gera hora é quem interessa aqui.
+    const deHoras = materias.filter((m) => m.conta_horas).map((m) => m.nome);
     $('#explicacao-progresso').textContent = u.turma_nome
-      ? `Turma ${u.turma_nome}${prof?.nome ? ' · Prof(a). ' + prof.nome : ''}`
+      ? `Turma ${u.turma_nome}${deHoras.length ? ' · horas de ' + deHoras.join(', ') : ''}`
       : 'Você ainda não está em uma turma — informe o código em “Seus dados”.';
     $('#painel-aluno').classList.remove('oculto');
     $('#painel-professor').classList.add('oculto');

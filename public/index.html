@@ -121,6 +121,12 @@
       <p class="explicacao" id="falta-meta" style="margin:16px 0 0"></p>
     </div>
 
+    <div class="cartao oculto" id="cartao-categorias">
+      <h2>Por categoria</h2>
+      <p class="explicacao">Cada categoria tem um teto definido pelo seu curso.</p>
+      <div id="lista-categorias"></div>
+    </div>
+
     <button id="btn-abrir-form">+ Lançar nova atividade</button>
 
     <div class="cartao oculto" id="cartao-formulario" style="margin-top:16px">
@@ -233,6 +239,8 @@
       <button data-aba="turmas">Turmas</button>
       <button data-aba="convites" class="oculto" id="aba-botao-convites">Convites</button>
       <button data-aba="integracao">Integração</button>
+      <button data-aba="cursos" class="oculto" id="aba-botao-cursos">Cursos</button>
+      <button data-aba="usuarios" class="oculto" id="aba-botao-usuarios">Pessoas</button>
       <button data-aba="ajustes">Meus dados</button>
     </div>
 
@@ -272,12 +280,16 @@
         </div>
         <div class="linha">
           <div class="campo">
+            <label for="nova-turma-curso">Curso</label>
+            <select id="nova-turma-curso"></select>
+          </div>
+          <div class="campo">
             <label for="nova-turma-periodo">Período <span class="opcional">(opcional)</span></label>
             <input id="nova-turma-periodo" placeholder="Ex.: 2026.1 — noite">
           </div>
           <div class="campo">
-            <label for="nova-turma-meta">Meta de horas</label>
-            <input id="nova-turma-meta" type="number" min="1" step="1" inputmode="numeric" value="200">
+            <label for="nova-turma-meta">Meta de horas <span class="opcional">(vazio = a do curso)</span></label>
+            <input id="nova-turma-meta" type="number" min="1" step="1" inputmode="numeric">
           </div>
         </div>
         <button id="btn-criar-turma">Criar turma</button>
@@ -325,6 +337,54 @@
         </div>
       </div>
       <div class="grade" id="lista-chaves"></div>
+    </div>
+
+    <div id="aba-cursos" class="oculto">
+      <div class="cartao">
+        <h2>Novo curso</h2>
+        <p class="explicacao">A carga obrigatória do curso é a meta de todos os alunos dele.</p>
+        <div class="linha">
+          <div class="campo">
+            <label for="novo-curso-nome">Nome</label>
+            <input id="novo-curso-nome" placeholder="Ex.: Psicologia">
+          </div>
+          <div class="campo">
+            <label for="novo-curso-sigla">Sigla <span class="opcional">(opcional)</span></label>
+            <input id="novo-curso-sigla" maxlength="20" placeholder="PSI">
+          </div>
+          <div class="campo">
+            <label for="novo-curso-horas">Horas obrigatórias</label>
+            <input id="novo-curso-horas" type="number" min="1" step="1" inputmode="numeric" value="100">
+          </div>
+        </div>
+        <button id="btn-criar-curso">Criar curso</button>
+      </div>
+
+      <div class="grade" id="lista-cursos"></div>
+
+      <div class="cartao">
+        <h2>Categorias de atividade</h2>
+        <p class="explicacao">Valem para todos os cursos; o limite de cada uma é definido por curso.</p>
+        <div id="lista-categorias-admin"></div>
+        <div class="linha" style="margin-top:16px">
+          <div class="campo">
+            <label for="nova-categoria-nome">Nova categoria</label>
+            <input id="nova-categoria-nome" maxlength="80" placeholder="Ex.: Monitoria">
+          </div>
+          <div class="campo">
+            <label for="nova-categoria-ordem">Ordem <span class="opcional">(na lista)</span></label>
+            <input id="nova-categoria-ordem" type="number" min="1" step="1" inputmode="numeric" value="50">
+          </div>
+        </div>
+        <button class="secundario" id="btn-criar-categoria">Adicionar categoria</button>
+      </div>
+    </div>
+
+    <div id="aba-usuarios" class="cartao oculto">
+      <h2>Pessoas</h2>
+      <p class="explicacao">Defina papel e curso de cada pessoa. Coordenador enxerga o curso inteiro.</p>
+      <input id="busca-usuarios" placeholder="Buscar por nome ou e-mail" style="margin-bottom:16px">
+      <div class="grade" id="lista-usuarios"></div>
     </div>
 
     <div id="aba-ajustes" class="cartao oculto">

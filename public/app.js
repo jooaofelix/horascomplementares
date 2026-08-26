@@ -1,4 +1,8 @@
 const $ = (sel) => document.querySelector(sel);
+
+// Professor, coordenação e administração compartilham o mesmo painel; o que
+// muda é o alcance de cada um, decidido no servidor.
+const EQUIPE = ['professor', 'coordenador', 'admin'];
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const estado = {
@@ -10,6 +14,8 @@ const estado = {
   alunos: [],
   convites: [],
   chaves: [],
+  cursos: [],
+  usuarios: [],
   turmaFiltro: '',
   papelCadastro: 'aluno',
 };
@@ -145,7 +151,7 @@ $('#btn-sair').onclick = async () => {
 };
 
 const exportar = () => {
-  const filtro = estado.usuario?.papel === 'professor' && estado.turmaFiltro
+  const filtro = EQUIPE.includes(estado.usuario?.papel) && estado.turmaFiltro
     ? `?turma_id=${estado.turmaFiltro}`
     : '';
   window.location.href = `/api/exportar.csv${filtro}`;
@@ -172,6 +178,33 @@ function desenharResumo() {
   $('#falta-meta').textContent = falta > 0
     ? `Faltam ${horas(falta)} validadas para fechar a meta.`
     : 'Meta de horas validadas atingida.';
+}
+
+function desenharCategorias() {
+  const linhas = estado.resumo?.categorias ?? [];
+  $('#cartao-categorias').classList.toggle('oculto', linhas.length === 0);
+  if (!linhas.length) return;
+
+  $('#lista-categorias').innerHTML = linhas.map((c) => {
+    const teto = c.limite ?? null;
+    const pct = teto ? Math.min(100, (c.validado / teto) * 100) : 0;
+    const pendente = teto ? Math.max(0, Math.min(100, (c.declarado / teto) * 100) - pct) : 0;
+    const estourou = teto !== null && c.declarado > teto;
+    return `<div class="item" style="margin-bottom:10px">
+      <div class="nome">${escapar(c.nome)}</div>
+      ${teto
+        ? `<div class="barra" style="margin-top:10px;height:10px">
+             <i class="validado" style="width:${pct}%"></i><i class="pendente" style="width:${pendente}%"></i>
+           </div>`
+        : ''}
+      <div class="numeros-linha">
+        <span><b>${horas(c.validado)}</b> validadas</span>
+        <span><b>${horas(c.declarado)}</b> lançadas</span>
+        <span>${teto ? 'limite ' + horas(teto) : 'sem limite'}</span>
+        ${estourou ? '<span class="selo esperando">passou do limite do curso</span>' : ''}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao = false } = {}) {
@@ -279,7 +312,7 @@ $('#form-atividade').onsubmit = async (e) => {
   const id = $('#ativ-id').value;
   const corpo = {
     titulo: $('#ativ-titulo').value,
-    categoria: $('#ativ-categoria').value,
+    categoria_id: $('#ativ-categoria').value,
     local: $('#ativ-local').value,
     responsavel: $('#ativ-responsavel').value,
     data_atividade: $('#ativ-data').value,
@@ -310,7 +343,7 @@ $('#lista-aluno').addEventListener('click', async (e) => {
     abrirFormulario(true);
     $('#ativ-id').value = a.id;
     $('#ativ-titulo').value = a.titulo;
-    $('#ativ-categoria').value = a.categoria;
+    $('#ativ-categoria').value = a.categoria_id ?? '';
     $('#ativ-local').value = a.local || '';
     $('#ativ-responsavel').value = a.responsavel || '';
     $('#ativ-data').value = a.data_atividade;
@@ -391,7 +424,7 @@ async function lerArquivo(arquivo) {
 $$('.abas button').forEach((botao) => {
   botao.onclick = () => {
     $$('.abas button').forEach((b) => b.classList.toggle('ativa', b === botao));
-    for (const aba of ['turma', 'registros', 'turmas', 'convites', 'integracao', 'ajustes']) {
+    for (const aba of ['turma', 'registros', 'turmas', 'convites', 'integracao', 'cursos', 'usuarios', 'ajustes']) {
       $(`#aba-${aba}`).classList.toggle('oculto', aba !== botao.dataset.aba);
     }
     $('#filtro-turma-cartao').classList.toggle(
@@ -489,7 +522,8 @@ $('#btn-criar-turma').onclick = async () => {
       corpo: {
         nome: $('#nova-turma-nome').value,
         periodo: $('#nova-turma-periodo').value,
-        meta_horas: $('#nova-turma-meta').value,
+        curso_id: $('#nova-turma-curso').value || null,
+        meta_horas: $('#nova-turma-meta').value || undefined,
       },
     });
     $('#nova-turma-nome').value = '';
@@ -639,6 +673,231 @@ async function carregarChaves() {
   desenharChaves();
 }
 
+function desenharCursos() {
+  const categorias = estado.categorias.filter((c) => c.ativa);
+  $('#lista-cursos').innerHTML = estado.cursos.length
+    ? estado.cursos.map((curso) => {
+        const regra = (id) => curso.regras.find((r) => r.categoria_id === id) || {};
+        return `<div class="item">
+          <div class="nome">${escapar(curso.nome)}${curso.sigla ? ' · ' + escapar(curso.sigla) : ''}</div>
+          <div class="sub">${horas(curso.horas_obrigatorias)} obrigatórias · ${curso.alunos} aluno(s)</div>
+          <div class="sub" style="margin-top:6px">
+            Coordenação: ${curso.coordenadores.length
+              ? curso.coordenadores.map((c) => escapar(c.nome)).join(', ')
+              : 'ninguém ainda'}
+          </div>
+
+          <div class="linha" style="margin-top:14px">
+            <div class="campo"><label>Nome</label><input data-curso-nome="${curso.id}" value="${escapar(curso.nome)}"></div>
+            <div class="campo"><label>Sigla</label><input data-curso-sigla="${curso.id}" value="${escapar(curso.sigla || '')}"></div>
+            <div class="campo"><label>Horas obrigatórias</label>
+              <input data-curso-horas="${curso.id}" type="number" min="1" inputmode="numeric" value="${curso.horas_obrigatorias}"></div>
+          </div>
+
+          <details style="margin-top:10px">
+            <summary style="cursor:pointer;color:var(--acento);font-weight:600">Limites por categoria</summary>
+            <table style="margin-top:12px">
+              <thead><tr><th>Categoria</th><th class="num">Limite (h)</th><th class="num">Ou % do total</th></tr></thead>
+              <tbody>
+                ${categorias.map((cat) => `<tr>
+                  <td>${escapar(cat.nome)}</td>
+                  <td class="num"><input style="max-width:110px" type="number" min="0" step="1" inputmode="numeric"
+                        data-regra-limite="${curso.id}:${cat.id}" value="${regra(cat.id).limite_horas ?? ''}" placeholder="—"></td>
+                  <td class="num"><input style="max-width:110px" type="number" min="1" max="100" step="1" inputmode="numeric"
+                        data-regra-pct="${curso.id}:${cat.id}" value="${regra(cat.id).percentual_max ?? ''}" placeholder="—"></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+            <p class="ajuda" style="margin-top:8px">Deixe vazio para a categoria não ter teto neste curso.</p>
+          </details>
+
+          <div class="acoes" style="margin-top:14px">
+            <button class="secundario mini" data-salvar-curso="${curso.id}">Salvar curso e limites</button>
+          </div>
+        </div>`;
+      }).join('')
+    : '<p class="vazio">Nenhum curso cadastrado ainda.</p>';
+
+  $('#lista-categorias-admin').innerHTML = estado.categorias.map((cat) => `<div class="item" style="margin-bottom:10px">
+      <div class="linha">
+        <div class="campo"><label>Nome</label><input data-cat-nome="${cat.id}" value="${escapar(cat.nome)}"></div>
+        <div class="campo"><label>Ordem</label><input data-cat-ordem="${cat.id}" type="number" min="1" inputmode="numeric" value="${cat.ordem}"></div>
+      </div>
+      <div class="acoes">
+        <button class="secundario mini" data-salvar-cat="${cat.id}">Salvar</button>
+        <button class="perigo mini" data-excluir-cat="${cat.id}">${cat.ativa ? 'Desativar' : 'Reativar'}</button>
+      </div>
+    </div>`).join('');
+
+  const opcoes = estado.cursos.map((c) => `<option value="${c.id}">${escapar(c.nome)}</option>`).join('');
+  $('#nova-turma-curso').innerHTML = `<option value="">Sem curso</option>${opcoes}`;
+}
+
+$('#btn-criar-curso').onclick = async () => {
+  try {
+    await api('/api/cursos', {
+      metodo: 'POST',
+      corpo: {
+        nome: $('#novo-curso-nome').value,
+        sigla: $('#novo-curso-sigla').value,
+        horas_obrigatorias: $('#novo-curso-horas').value,
+      },
+    });
+    $('#novo-curso-nome').value = '';
+    $('#novo-curso-sigla').value = '';
+    await carregarAdmin();
+    avisar('Curso criado.', 'ok');
+  } catch (err) {
+    falhar(err);
+  }
+};
+
+$('#lista-cursos').addEventListener('click', async (e) => {
+  const id = e.target.dataset.salvarCurso;
+  if (!id) return;
+  try {
+    await api(`/api/cursos/${id}`, {
+      metodo: 'PUT',
+      corpo: {
+        nome: $(`[data-curso-nome="${id}"]`).value,
+        sigla: $(`[data-curso-sigla="${id}"]`).value,
+        horas_obrigatorias: $(`[data-curso-horas="${id}"]`).value,
+      },
+    });
+    const regras = estado.categorias.filter((c) => c.ativa).map((cat) => ({
+      categoria_id: cat.id,
+      limite_horas: $(`[data-regra-limite="${id}:${cat.id}"]`).value,
+      percentual_max: $(`[data-regra-pct="${id}:${cat.id}"]`).value,
+    })).filter((r) => r.limite_horas !== '' || r.percentual_max !== '');
+
+    await api(`/api/cursos/${id}/regras`, { metodo: 'PUT', corpo: { regras } });
+    await carregarAdmin();
+    avisar('Curso e limites salvos.', 'ok');
+  } catch (err) {
+    falhar(err);
+  }
+});
+
+$('#btn-criar-categoria').onclick = async () => {
+  try {
+    await api('/api/categorias', {
+      metodo: 'POST',
+      corpo: { nome: $('#nova-categoria-nome').value, ordem: $('#nova-categoria-ordem').value },
+    });
+    $('#nova-categoria-nome').value = '';
+    await carregarAdmin();
+    avisar('Categoria adicionada.', 'ok');
+  } catch (err) {
+    falhar(err);
+  }
+};
+
+$('#lista-categorias-admin').addEventListener('click', async (e) => {
+  const { salvarCat, excluirCat } = e.target.dataset;
+  try {
+    if (salvarCat) {
+      await api(`/api/categorias/${salvarCat}`, {
+        metodo: 'PUT',
+        corpo: {
+          nome: $(`[data-cat-nome="${salvarCat}"]`).value,
+          ordem: $(`[data-cat-ordem="${salvarCat}"]`).value,
+          ativa: true,
+        },
+      });
+      await carregarAdmin();
+      avisar('Categoria salva.', 'ok');
+    }
+    if (excluirCat) {
+      const cat = estado.categorias.find((c) => String(c.id) === excluirCat);
+      if (cat.ativa) {
+        const r = await api(`/api/categorias/${excluirCat}`, { metodo: 'DELETE' });
+        avisar(r.desativada
+          ? `Categoria desativada (${r.atividades} atividade(s) mantêm o histórico).`
+          : 'Categoria removida.', 'ok');
+      } else {
+        await api(`/api/categorias/${excluirCat}`, {
+          metodo: 'PUT', corpo: { nome: cat.nome, ordem: cat.ordem, ativa: true },
+        });
+        avisar('Categoria reativada.', 'ok');
+      }
+      await carregarAdmin();
+    }
+  } catch (err) {
+    falhar(err);
+  }
+});
+
+function desenharUsuarios() {
+  const termo = $('#busca-usuarios').value.trim().toLowerCase();
+  const lista = estado.usuarios.filter((u) =>
+    !termo || `${u.nome} ${u.email}`.toLowerCase().includes(termo));
+  const cursos = estado.cursos.map((c) => `<option value="${c.id}">${escapar(c.nome)}</option>`).join('');
+
+  $('#lista-usuarios').innerHTML = lista.length
+    ? lista.map((u) => `<div class="item">
+        <div class="nome">${escapar(u.nome)} ${u.pre_cadastrado ? '<span class="selo esperando">sem senha</span>' : ''}</div>
+        <div class="sub">${escapar(u.email)}${u.turma_nome ? ' · ' + escapar(u.turma_nome) : ''}</div>
+        <div class="linha" style="margin-top:12px">
+          <div class="campo">
+            <label>Papel</label>
+            <select data-papel="${u.id}">
+              ${['aluno', 'professor', 'coordenador', 'admin']
+                .map((p) => `<option value="${p}" ${p === u.papel ? 'selected' : ''}>${p}</option>`).join('')}
+            </select>
+          </div>
+          <div class="campo">
+            <label>Curso</label>
+            <select data-curso="${u.id}"><option value="">Sem curso</option>${cursos}</select>
+          </div>
+          <div class="campo">
+            <label>Matrícula</label>
+            <input data-matricula="${u.id}" value="${escapar(u.matricula || '')}">
+          </div>
+        </div>
+        <div class="acoes"><button class="secundario mini" data-salvar-usuario="${u.id}">Salvar</button></div>
+      </div>`).join('')
+    : '<p class="vazio">Ninguém encontrado.</p>';
+
+  for (const u of lista) {
+    const select = $(`[data-curso="${u.id}"]`);
+    if (select) select.value = u.curso_id ?? '';
+  }
+}
+
+$('#busca-usuarios').addEventListener('input', desenharUsuarios);
+
+$('#lista-usuarios').addEventListener('click', async (e) => {
+  const id = e.target.dataset.salvarUsuario;
+  if (!id) return;
+  try {
+    await api(`/api/usuarios/${id}`, {
+      metodo: 'PUT',
+      corpo: {
+        papel: $(`[data-papel="${id}"]`).value,
+        curso_id: $(`[data-curso="${id}"]`).value || null,
+        matricula: $(`[data-matricula="${id}"]`).value,
+      },
+    });
+    await carregarAdmin();
+    avisar('Pessoa atualizada.', 'ok');
+  } catch (err) {
+    falhar(err);
+  }
+});
+
+async function carregarAdmin() {
+  const [cursos, categorias, usuarios] = await Promise.all([
+    api('/api/cursos'),
+    api('/api/categorias'),
+    estado.usuario?.papel === 'admin' ? api('/api/usuarios') : Promise.resolve({ usuarios: [] }),
+  ]);
+  estado.cursos = cursos.cursos;
+  estado.categorias = categorias.categorias;
+  estado.usuarios = usuarios.usuarios;
+  desenharCursos();
+  desenharUsuarios();
+}
+
 $('#btn-salvar-perfil').onclick = async () => {
   try {
     await api('/api/eu', {
@@ -659,6 +918,7 @@ async function carregarAtividades() {
   estado.atividades = dados.atividades;
   estado.resumo = dados.resumo;
   desenharResumo();
+  desenharCategorias();
   desenharListaAluno();
 }
 
@@ -704,16 +964,22 @@ async function iniciar() {
   $('#tela-app').classList.remove('oculto');
 
   const u = estado.usuario;
-  if (u.papel === 'professor') {
-    $('#identificacao').textContent = [u.nome, u.instituicao].filter(Boolean).join(' · ');
+  if (EQUIPE.includes(u.papel)) {
+    const cargo = { admin: 'administração', coordenador: 'coordenação', professor: 'professor(a)' }[u.papel];
+    $('#identificacao').textContent = [u.nome, cargo, u.instituicao].filter(Boolean).join(' · ');
     $('#painel-professor').classList.remove('oculto');
     $('#painel-aluno').classList.add('oculto');
     $('#cfg-nome').value = u.nome;
     $('#cfg-instituicao').value = u.instituicao || '';
     estado.turmas = dados.turmas || [];
     $('#aba-botao-convites').classList.toggle('oculto', !u.pode_convidar);
+    $('#aba-botao-cursos').classList.toggle('oculto', u.papel !== 'admin');
+    $('#aba-botao-usuarios').classList.toggle('oculto', u.papel !== 'admin');
+    estado.categorias = dados.categorias;
+    estado.cursos = dados.cursos || [];
     await carregarProfessor();
     await carregarChaves();
+    if (u.papel === 'admin') await carregarAdmin();
     if (u.pode_convidar) await carregarConvites();
   } else {
     const prof = dados.professor;
@@ -724,7 +990,8 @@ async function iniciar() {
     $('#painel-aluno').classList.remove('oculto');
     $('#painel-professor').classList.add('oculto');
     $('#ativ-categoria').innerHTML = estado.categorias
-      .map((c) => `<option value="${escapar(c)}">${escapar(c)}</option>`)
+      .filter((c) => c.ativa)
+      .map((c) => `<option value="${c.id}">${escapar(c.nome)}</option>`)
       .join('');
     $('#meus-nome').value = u.nome;
     $('#meus-matricula').value = u.matricula || '';

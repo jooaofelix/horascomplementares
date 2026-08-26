@@ -28,6 +28,10 @@ const COLUNAS_NOVAS = [
   ['usuarios', 'pode_convidar', 'INTEGER NOT NULL DEFAULT 0'],
   ['usuarios', 'pre_cadastrado', 'INTEGER NOT NULL DEFAULT 0'],
   ['atividades', 'origem', 'TEXT'],
+  ['atividades', 'categoria_id', 'INTEGER REFERENCES categorias(id) ON DELETE SET NULL'],
+  ['usuarios', 'curso_id', 'INTEGER REFERENCES cursos(id) ON DELETE SET NULL'],
+  ['usuarios', 'semestre', 'TEXT'],
+  ['turmas', 'curso_id', 'INTEGER REFERENCES cursos(id) ON DELETE SET NULL'],
   ['atividades', 'origem_id', 'TEXT'],
   ['turmas', 'professor_id', 'INTEGER REFERENCES usuarios(id) ON DELETE SET NULL'],
   ['turmas', 'codigo', 'TEXT'],
@@ -56,6 +60,23 @@ function garantirColunas(db) {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_atividades_origem
       ON atividades(origem, origem_id) WHERE origem_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_chaves_professor ON chaves_api(professor_id);
+    CREATE INDEX IF NOT EXISTS idx_usuarios_curso ON usuarios(curso_id);
+    CREATE INDEX IF NOT EXISTS idx_regras_curso ON regras_categoria(curso_id);
+
+    -- Liga o que já existia à estrutura acadêmica nova. Numa instalação nova
+    -- não há o que migrar, então nenhum curso é inventado: quem cria é o admin.
+    INSERT INTO cursos(nome, horas_obrigatorias, criado_em)
+    SELECT 'Curso padrão', COALESCE((SELECT MAX(meta_horas) FROM turmas), 200), datetime('now')
+     WHERE NOT EXISTS (SELECT 1 FROM cursos)
+       AND EXISTS (SELECT 1 FROM turmas);
+    UPDATE turmas SET curso_id = (SELECT id FROM cursos ORDER BY id LIMIT 1) WHERE curso_id IS NULL;
+    UPDATE usuarios
+       SET curso_id = (SELECT t.curso_id FROM turmas t WHERE t.id = usuarios.turma_id)
+     WHERE papel = 'aluno' AND curso_id IS NULL;
+    UPDATE atividades
+       SET categoria_id = (SELECT c.id FROM categorias c WHERE c.nome = atividades.categoria)
+     WHERE categoria_id IS NULL;
+    UPDATE usuarios SET papel = 'admin' WHERE papel = 'professor' AND pode_convidar = 1;
 
     -- Sem ninguém podendo convidar, o primeiro professor recebe a permissão.
     UPDATE usuarios

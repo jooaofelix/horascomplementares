@@ -64,6 +64,8 @@ vez cada:
 ```bash
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/002-turmas-e-campos.sql
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/003-saas-multiprofessor.sql
+npx wrangler d1 execute horas-complementares --remote --file=migracoes/005-integracao.sql
+npx wrangler d1 execute horas-complementares --remote --file=migracoes/006-cursos-categorias-papeis.sql
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/004-convites-de-professor.sql
 ```
 
@@ -79,6 +81,36 @@ npx wrangler dev --local
 
 > Os dois modos têm bancos separados: o que você cadastrar em `npm start` não aparece no site
 > publicado, e vice-versa.
+
+## Papéis
+
+| Papel | Enxerga | Faz |
+| --- | --- | --- |
+| **Aluno** | só os próprios registros | lança atividades e acompanha as horas |
+| **Professor** | as turmas que criou | valida as horas dos alunos dessas turmas |
+| **Coordenador** | todas as turmas dos cursos que coordena | valida em qualquer turma do curso |
+| **Admin** | a faculdade inteira | cursos, categorias, limites, papéis e pessoas |
+
+A **primeira conta de equipe** criada numa instalação nova entra sem convite e já como
+administradora. Daí em diante, conta de professor só com convite de uso único; o admin promove a
+coordenador ligando a pessoa a um curso.
+
+## Cursos, categorias e limites
+
+O **curso** define a carga obrigatória do aluno (ex.: Psicologia, 100 h) — é ela que vira a meta de
+quem está no curso. As **categorias** de atividade são cadastráveis, e cada curso define o **teto**
+de cada categoria, em horas ou em percentual do total:
+
+| Categoria | Limite no curso |
+| --- | --- |
+| Observação em campo | 40 h |
+| Leitura / fichamento | 20% de 100 h = 20 h |
+
+O aluno vê esse quadro no próprio painel, com quanto já tem em cada categoria e quanto ainda cabe.
+Categoria sem regra no curso não tem teto. Categoria já usada em atividades não é apagada: ela é
+desativada e some das listas novas, preservando o histórico.
+
+O aluno herda o curso da turma em que entrou pelo código — não precisa escolher nada.
 
 ## Turmas e códigos
 

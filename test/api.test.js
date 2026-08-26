@@ -53,7 +53,7 @@ const atividadeBase = {
   texto: 'Registro cursivo do terceiro encontro. Duas crianças em brincadeira paralela.',
 };
 
-// O primeiro professor da instalação entra sem convite.
+// A primeira conta de equipe da faculdade entra sem convite e já como admin.
 async function criarProfessor(base, nome = 'Profa. Marina', email = 'marina@exemplo.br', codigoConvite = null) {
   const c = cliente(base);
   const r = await c('/api/cadastro', {
@@ -95,16 +95,22 @@ async function criarAluno(base, nome, email, codigoTurma, extras = {}) {
 
 // ---------------------------------------------------------------- contas
 
-test('professor se cadastra sozinho e a turma nasce com um código', async () => {
+test('a primeira conta da faculdade vira admin e a turma nasce com um código', async () => {
   await comAmbiente(async ({ base }) => {
-    const professor = await criarProfessor(base);
-    const turma = await criarTurma(professor, 'Técnicas de Observação', 120, '2026.1');
+    const admin = await criarProfessor(base);
+    const turma = await criarTurma(admin, 'Técnicas de Observação', 120, '2026.1');
     assert.match(turma.codigo, /^[A-Z0-9]{6}$/);
 
-    const eu = await professor('/api/eu');
-    assert.equal(eu.dados.usuario.papel, 'professor');
+    const eu = await admin('/api/eu');
+    assert.equal(eu.dados.usuario.papel, 'admin');
     assert.equal(eu.dados.usuario.instituicao, 'UniExemplo');
     assert.equal(eu.dados.turmas.length, 1);
+    assert.equal(eu.dados.cursos.length, 0, 'instalação nova não inventa curso');
+    assert.ok(eu.dados.categorias.length >= 8);
+
+    // Quem entra por convite depois começa como professor.
+    const professora = await criarProfessorConvidado(base, admin, 'Profa. Helena', 'helena@exemplo.br');
+    assert.equal((await professora('/api/eu')).dados.usuario.papel, 'professor');
   });
 });
 
@@ -377,8 +383,9 @@ test('excluir atividade remove as horas do total', async () => {
 
 test('um professor não enxerga alunos, registros nem turmas de outro', async () => {
   await comAmbiente(async ({ base }) => {
-    const marina = await criarProfessor(base);
-    const carlos = await criarProfessorConvidado(base, marina, 'Prof. Carlos', 'carlos@exemplo.br');
+    const admin = await criarProfessor(base);
+    const marina = await criarProfessorConvidado(base, admin, 'Profa. Marina P.', 'marina.p@exemplo.br');
+    const carlos = await criarProfessorConvidado(base, admin, 'Prof. Carlos', 'carlos@exemplo.br');
     const turmaMarina = await criarTurma(marina, 'Marina — manhã', 120);
     const turmaCarlos = await criarTurma(carlos, 'Carlos — noite', 300);
 
@@ -415,6 +422,12 @@ test('um professor não enxerga alunos, registros nem turmas de outro', async ()
     const csvCarlos = await carlos('/api/exportar.csv');
     assert.match(csvCarlos.dados, /Do Bruno/);
     assert.doesNotMatch(csvCarlos.dados, /Observação livre no pátio/);
+
+    // O admin da faculdade enxerga as duas turmas.
+    const visaoAdmin = await admin('/api/turma');
+    assert.equal(visaoAdmin.dados.alunos.length, 2);
+    assert.equal(visaoAdmin.dados.turmas.length, 2);
+    assert.equal((await admin('/api/atividades')).dados.atividades.length, 2);
   });
 });
 
@@ -495,7 +508,8 @@ test('o aluno troca de turma digitando outro código', async () => {
 
 test('o professor edita o próprio nome e instituição', async () => {
   await comAmbiente(async ({ base }) => {
-    const professor = await criarProfessor(base);
+    const admin = await criarProfessor(base);
+    const professor = await criarProfessorConvidado(base, admin, 'Prof. Novo', 'novo@exemplo.br');
     const r = await professor('/api/eu', {
       metodo: 'PUT',
       corpo: { nome: 'Profa. Marina Alves', instituicao: 'Psicologia — UniExemplo' },
@@ -504,6 +518,7 @@ test('o professor edita o próprio nome e instituição', async () => {
     const eu = await professor('/api/eu');
     assert.equal(eu.dados.usuario.nome, 'Profa. Marina Alves');
     assert.equal(eu.dados.usuario.instituicao, 'Psicologia — UniExemplo');
+    assert.equal(eu.dados.usuario.papel, 'professor');
   });
 });
 
@@ -713,5 +728,211 @@ test('aluno não cria chaves de integração', async () => {
     const ana = await criarAluno(base, 'Ana', 'ana@ex.br', turma.codigo);
     assert.equal((await ana('/api/chaves')).status, 403);
     assert.equal((await ana('/api/chaves', { metodo: 'POST', corpo: { nome: 'X' } })).status, 403);
+  });
+});
+
+// ---------------------------------------------------------------- estrutura acadêmica
+
+async function criarCurso(admin, nome, horas_obrigatorias, sigla = null) {
+  const r = await admin('/api/cursos', { metodo: 'POST', corpo: { nome, horas_obrigatorias, sigla } });
+  assert.equal(r.status, 201, JSON.stringify(r.dados));
+  return r.dados.curso;
+}
+
+const idCategoria = async (usuario, nome) => {
+  const { dados } = await usuario('/api/categorias');
+  const achada = dados.categorias.find((c) => c.nome === nome);
+  assert.ok(achada, `categoria ${nome} deveria existir`);
+  return achada.id;
+};
+
+test('o admin cria curso com carga obrigatória e o aluno herda essa meta', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const curso = await criarCurso(admin, 'Psicologia', 100, 'PSI');
+
+    const r = await admin('/api/turmas', {
+      metodo: 'POST',
+      corpo: { nome: 'Técnicas de Observação', curso_id: curso.id, meta_horas: 100 },
+    });
+    const turma = r.dados.turma;
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', turma.codigo);
+    await admin('/api/usuarios/' + (await admin('/api/usuarios')).dados.usuarios.find((u) => u.email === 'ana@ex.br').id, {
+      metodo: 'PUT',
+      corpo: { papel: 'aluno', curso_id: curso.id, semestre: '4º' },
+    });
+
+    const eu = await ana('/api/eu');
+    assert.equal(eu.dados.resumo.meta, 100, 'a carga vem do curso');
+    assert.equal(eu.dados.curso.nome, 'Psicologia');
+  });
+});
+
+test('as regras de categoria por curso aparecem no painel do aluno', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const curso = await criarCurso(admin, 'Psicologia', 100);
+    const campo = await idCategoria(admin, 'Observação em campo');
+    const leitura = await idCategoria(admin, 'Leitura / fichamento');
+
+    const regras = await admin(`/api/cursos/${curso.id}/regras`, {
+      metodo: 'PUT',
+      corpo: {
+        regras: [
+          { categoria_id: campo, limite_horas: 40 },
+          { categoria_id: leitura, percentual_max: 20 },
+        ],
+      },
+    });
+    assert.equal(regras.status, 200, JSON.stringify(regras.dados));
+
+    const { dados } = await admin('/api/turmas', {
+      metodo: 'POST', corpo: { nome: 'Manhã', curso_id: curso.id },
+    });
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', dados.turma.codigo);
+    const anaId = (await admin('/api/usuarios')).dados.usuarios.find((u) => u.email === 'ana@ex.br').id;
+    await admin(`/api/usuarios/${anaId}`, { metodo: 'PUT', corpo: { curso_id: curso.id } });
+
+    await ana('/api/atividades', {
+      metodo: 'POST',
+      corpo: { ...atividadeBase, categoria: 'Observação em campo', horas: 6 },
+    });
+
+    const eu = await ana('/api/eu');
+    const emCampo = eu.dados.resumo.categorias.find((c) => c.nome === 'Observação em campo');
+    const emLeitura = eu.dados.resumo.categorias.find((c) => c.nome === 'Leitura / fichamento');
+    assert.equal(emCampo.limite, 40, 'limite em horas');
+    assert.equal(emCampo.declarado, 6);
+    assert.equal(emLeitura.limite, 20, '20% de 100h = 20h');
+  });
+});
+
+test('o aluno que entra pelo código herda o curso da turma e os limites dele', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const curso = await criarCurso(admin, 'Psicologia', 100);
+    const campo = await idCategoria(admin, 'Observação em campo');
+    await admin(`/api/cursos/${curso.id}/regras`, {
+      metodo: 'PUT', corpo: { regras: [{ categoria_id: campo, limite_horas: 40 }] },
+    });
+    const turma = (await admin('/api/turmas', {
+      metodo: 'POST', corpo: { nome: 'Manhã', curso_id: curso.id },
+    })).dados.turma;
+
+    // Sem passar por nenhuma tela de admin: só o código da turma.
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', turma.codigo);
+    const eu = await ana('/api/eu');
+    assert.equal(eu.dados.curso.nome, 'Psicologia');
+    assert.equal(eu.dados.resumo.meta, 100);
+    assert.equal(eu.dados.resumo.categorias.find((c) => c.nome === 'Observação em campo').limite, 40);
+  });
+});
+
+test('o coordenador enxerga os cursos que coordena, e nada além', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const psico = await criarCurso(admin, 'Psicologia', 100);
+    const direito = await criarCurso(admin, 'Direito', 200);
+
+    const helena = await criarProfessorConvidado(base, admin, 'Profa. Helena', 'helena@exemplo.br');
+    const rafael = await criarProfessorConvidado(base, admin, 'Prof. Rafael', 'rafael@exemplo.br');
+    const helenaId = (await admin('/api/usuarios')).dados.usuarios.find((u) => u.email === 'helena@exemplo.br').id;
+
+    // Turmas de professores diferentes, em cursos diferentes.
+    const tPsico = (await helena('/api/turmas', { metodo: 'POST', corpo: { nome: 'Psico — manhã', curso_id: psico.id } })).dados.turma;
+    const tDireito = (await rafael('/api/turmas', { metodo: 'POST', corpo: { nome: 'Direito — noite', curso_id: direito.id } })).dados.turma;
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', tPsico.codigo);
+    const bruno = await criarAluno(base, 'Bruno', 'bruno@ex.br', tDireito.codigo);
+    await ana('/api/atividades', { metodo: 'POST', corpo: atividadeBase });
+    await bruno('/api/atividades', { metodo: 'POST', corpo: { ...atividadeBase, titulo: 'Do Direito' } });
+
+    // Rafael continua professor; Helena vira coordenadora de Psicologia.
+    const promovida = await admin(`/api/cursos/${psico.id}/coordenadores`, {
+      metodo: 'POST', corpo: { usuario_id: helenaId },
+    });
+    assert.equal(promovida.status, 200, JSON.stringify(promovida.dados));
+    assert.equal((await helena('/api/eu')).dados.usuario.papel, 'coordenador');
+
+    // Como coordenadora, ela vê a turma de Psicologia mesmo não sendo dela.
+    const outraTurmaPsico = (await admin('/api/turmas', {
+      metodo: 'POST', corpo: { nome: 'Psico — noite', curso_id: psico.id },
+    })).dados.turma;
+    const carla = await criarAluno(base, 'Carla', 'carla@ex.br', outraTurmaPsico.codigo);
+    await carla('/api/atividades', { metodo: 'POST', corpo: { ...atividadeBase, titulo: 'Da Carla' } });
+
+    const visao = await helena('/api/turma');
+    assert.deepEqual(visao.dados.alunos.map((a) => a.nome).sort(), ['Ana', 'Carla']);
+    const registros = await helena('/api/atividades');
+    assert.equal(registros.dados.atividades.length, 2);
+    assert.doesNotMatch(JSON.stringify(registros.dados), /Do Direito/);
+
+    // E valida atividade de turma que não é dela, por ser do curso dela.
+    const daCarla = registros.dados.atividades.find((a) => a.titulo === 'Da Carla');
+    assert.equal((await helena(`/api/atividades/${daCarla.id}/validacao`, {
+      metodo: 'POST', corpo: { validado: true },
+    })).status, 200);
+
+    // Rafael, professor, não alcança nada de Psicologia.
+    const visaoRafael = await rafael('/api/turma');
+    assert.deepEqual(visaoRafael.dados.alunos.map((a) => a.nome), ['Bruno']);
+    assert.equal((await rafael(`/api/atividades/${daCarla.id}/validacao`, {
+      metodo: 'POST', corpo: { validado: true },
+    })).status, 404);
+  });
+});
+
+test('só o admin mexe em cursos e categorias', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const professor = await criarProfessorConvidado(base, admin, 'Prof. Novo', 'novo@exemplo.br');
+    const curso = await criarCurso(admin, 'Psicologia', 100);
+
+    assert.equal((await professor('/api/cursos', { metodo: 'POST', corpo: { nome: 'X', horas_obrigatorias: 10 } })).status, 403);
+    assert.equal((await professor(`/api/cursos/${curso.id}`, { metodo: 'PUT', corpo: { nome: 'X', horas_obrigatorias: 10 } })).status, 403);
+    assert.equal((await professor('/api/categorias', { metodo: 'POST', corpo: { nome: 'Nova' } })).status, 403);
+    assert.equal((await professor(`/api/cursos/${curso.id}/regras`, { metodo: 'PUT', corpo: { regras: [] } })).status, 403);
+    // Mas ele consegue ler o que precisa para trabalhar.
+    assert.equal((await professor('/api/cursos')).status, 200);
+    assert.equal((await professor('/api/categorias')).status, 200);
+  });
+});
+
+test('categoria nova entra no formulário; categoria usada é desativada, não apagada', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const nova = await admin('/api/categorias', {
+      metodo: 'POST',
+      corpo: { nome: 'Monitoria', descricao: 'Monitoria de disciplina', ordem: 5 },
+    });
+    assert.equal(nova.status, 201);
+
+    const turma = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: 'Manhã' } })).dados.turma;
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', turma.codigo);
+    const criada = await ana('/api/atividades', {
+      metodo: 'POST',
+      corpo: { ...atividadeBase, categoria: 'Monitoria', horas: 3 },
+    });
+    assert.equal(criada.status, 201, JSON.stringify(criada.dados));
+    assert.equal(criada.dados.atividade.categoria, 'Monitoria');
+
+    const apagar = await admin(`/api/categorias/${nova.dados.categoria.id}`, { metodo: 'DELETE' });
+    assert.equal(apagar.dados.desativada, true);
+    assert.equal(apagar.dados.atividades, 1);
+
+    const restantes = await admin('/api/categorias');
+    assert.equal(restantes.dados.categorias.find((c) => c.nome === 'Monitoria').ativa, 0);
+    // O histórico do aluno continua de pé.
+    assert.equal((await ana('/api/atividades')).dados.atividades[0].categoria, 'Monitoria');
+  });
+});
+
+test('categoria inexistente é recusada no lançamento', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const turma = (await admin('/api/turmas', { metodo: 'POST', corpo: { nome: 'Manhã' } })).dados.turma;
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', turma.codigo);
+    const r = await ana('/api/atividades', { metodo: 'POST', corpo: { ...atividadeBase, categoria: 'Futebol' } });
+    assert.equal(r.status, 400);
+    assert.match(r.dados.erro, /Categoria inválida/);
   });
 });

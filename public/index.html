@@ -105,11 +105,12 @@
       <h2>Seu progresso</h2>
       <p class="explicacao" id="explicacao-progresso"></p>
       <div class="numeros">
-        <div class="numero"><div class="valor" id="n-validado">0</div><div class="rotulo">validadas</div></div>
-        <div class="numero"><div class="valor" id="n-declarado">0</div><div class="rotulo">lançadas</div></div>
-        <div class="numero"><div class="valor" id="n-meta">0</div><div class="rotulo">meta</div></div>
-        <div class="numero"><div class="valor" id="n-registros">0</div><div class="rotulo">atividades</div></div>
+        <div class="numero"><div class="valor" id="n-validado">0</div><div class="rotulo">aprovadas</div></div>
+        <div class="numero"><div class="valor" id="n-aguardando">0</div><div class="rotulo">em análise</div></div>
+        <div class="numero"><div class="valor" id="n-reprovado">0</div><div class="rotulo">reprovadas</div></div>
+        <div class="numero"><div class="valor" id="n-restante">0</div><div class="rotulo">faltam</div></div>
       </div>
+      <p class="explicacao" id="linha-meta" style="margin:14px 0 0"></p>
       <div class="barra">
         <i class="validado" id="barra-validado" style="width:0"></i>
         <i class="pendente" id="barra-pendente" style="width:0"></i>
@@ -202,8 +203,10 @@
         <input id="busca-aluno" placeholder="Buscar por nome, local ou trecho">
         <select id="filtro-status-aluno">
           <option value="">Mostrar todas</option>
-          <option value="1">Só validadas</option>
-          <option value="0">Só aguardando</option>
+          <option value="aprovado">Aprovadas</option>
+          <option value="pendente">Aguardando análise</option>
+          <option value="correcao">Devolvidas para correção</option>
+          <option value="reprovado">Reprovadas</option>
         </select>
       </div>
       <div id="lista-aluno"></div>
@@ -269,9 +272,11 @@
       <div class="linha" style="margin-bottom:16px">
         <input id="busca-prof" placeholder="Buscar por aluno, atividade ou local">
         <select id="filtro-status-prof">
-          <option value="0">Aguardando validação</option>
+          <option value="fila">Esperando análise</option>
           <option value="">Mostrar todas</option>
-          <option value="1">Só validadas</option>
+          <option value="aprovado">Aprovadas</option>
+          <option value="reprovado">Reprovadas</option>
+          <option value="correcao">Em correção</option>
         </select>
       </div>
       <div id="lista-prof"></div>

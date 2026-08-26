@@ -77,6 +77,11 @@ CREATE TABLE IF NOT EXISTS atividades (
   arquivo_nome   TEXT,
   origem         TEXT,
   origem_id      TEXT,
+  status         TEXT NOT NULL DEFAULT 'pendente',
+  horas_aprovadas REAL,
+  motivo         TEXT,
+  analisado_por  INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  analisado_em   TEXT,
   validado       INTEGER NOT NULL DEFAULT 0,
   validado_por   INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
   validado_em    TEXT,
@@ -119,6 +124,20 @@ CREATE TABLE IF NOT EXISTS convites (
 CREATE TABLE IF NOT EXISTS config (
   chave TEXT PRIMARY KEY,
   valor TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auditoria (
+  id           INTEGER PRIMARY KEY,
+  entidade     TEXT NOT NULL,
+  entidade_id  INTEGER NOT NULL,
+  acao         TEXT NOT NULL,
+  descricao    TEXT NOT NULL,
+  dados        TEXT,
+  usuario_id   INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  usuario_nome TEXT,
+  papel        TEXT,
+  ip           TEXT,
+  criado_em    TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS arquivos (

@@ -351,12 +351,12 @@ test('validar move as horas, e editar depois derruba a validação', async () =>
     const aluno = await criarAluno(base, 'Ana', 'ana@exemplo.br', turma.codigo);
     const { dados } = await aluno('/api/atividades', { metodo: 'POST', corpo: atividadeBase });
 
-    const validada = await professor(`/api/atividades/${dados.atividade.id}/validacao`, {
+    const validada = await professor(`/api/atividades/${dados.atividade.id}/analise`, {
       metodo: 'POST',
-      corpo: { validado: true, observacao: 'Bom detalhamento.' },
+      corpo: { status: 'aprovado', motivo: 'Bom detalhamento.' },
     });
     assert.equal(validada.status, 200);
-    assert.equal(validada.dados.atividade.validado, 1);
+    assert.equal(validada.dados.atividade.status, 'aprovado');
     assert.equal((await aluno('/api/atividades')).dados.resumo.validado, 2.5);
 
     const editada = await aluno(`/api/atividades/${dados.atividade.id}`, {
@@ -468,7 +468,7 @@ test('aluno não valida horas nem mexe em atividade de colega', async () => {
     const bruno = await criarAluno(base, 'Bruno', 'bruno@exemplo.br', turma.codigo);
     const { dados } = await ana('/api/atividades', { metodo: 'POST', corpo: atividadeBase });
 
-    assert.equal((await ana(`/api/atividades/${dados.atividade.id}/validacao`, { metodo: 'POST', corpo: { validado: true } })).status, 403);
+    assert.equal((await ana(`/api/atividades/${dados.atividade.id}/analise`, { metodo: 'POST', corpo: { status: 'aprovado' } })).status, 403);
     assert.equal((await bruno(`/api/atividades/${dados.atividade.id}`, { metodo: 'PUT', corpo: atividadeBase })).status, 403);
     assert.equal((await bruno(`/api/atividades/${dados.atividade.id}`, { metodo: 'DELETE' })).status, 403);
     assert.equal((await bruno('/api/atividades')).dados.atividades.length, 0);
@@ -871,15 +871,15 @@ test('o coordenador enxerga os cursos que coordena, e nada além', async () => {
 
     // E valida atividade de turma que não é dela, por ser do curso dela.
     const daCarla = registros.dados.atividades.find((a) => a.titulo === 'Da Carla');
-    assert.equal((await helena(`/api/atividades/${daCarla.id}/validacao`, {
-      metodo: 'POST', corpo: { validado: true },
+    assert.equal((await helena(`/api/atividades/${daCarla.id}/analise`, {
+      metodo: 'POST', corpo: { status: 'aprovado' },
     })).status, 200);
 
     // Rafael, professor, não alcança nada de Psicologia.
     const visaoRafael = await rafael('/api/turma');
     assert.deepEqual(visaoRafael.dados.alunos.map((a) => a.nome), ['Bruno']);
-    assert.equal((await rafael(`/api/atividades/${daCarla.id}/validacao`, {
-      metodo: 'POST', corpo: { validado: true },
+    assert.equal((await rafael(`/api/atividades/${daCarla.id}/analise`, {
+      metodo: 'POST', corpo: { status: 'aprovado' },
     })).status, 404);
   });
 });
@@ -1158,5 +1158,121 @@ test('aula não publicada fica escondida do aluno', async () => {
 
     assert.equal((await ana(`/api/turmas/${turma.id}/mural`)).dados.aulas.length, 1);
     assert.equal((await admin(`/api/turmas/${turma.id}/mural`)).dados.aulas.length, 2);
+  });
+});
+
+// ---------------------------------------------------------------- status e auditoria
+
+test('a atividade nasce pendente e o coordenador aprova com menos horas', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, ana } = await turmaComAluno(base);
+    const criada = await ana('/api/atividades', { metodo: 'POST', corpo: { ...atividadeBase, horas: 10 } });
+    assert.equal(criada.dados.atividade.status, 'pendente');
+    assert.equal(criada.dados.resumo.aguardando, 10);
+    assert.equal(criada.dados.resumo.validado, 0);
+
+    const demais = await admin(`/api/atividades/${criada.dados.atividade.id}/analise`, {
+      metodo: 'POST', corpo: { status: 'aprovado', horas_aprovadas: 12 },
+    });
+    assert.equal(demais.status, 400, 'não dá para aprovar mais do que foi declarado');
+
+    const aprovada = await admin(`/api/atividades/${criada.dados.atividade.id}/analise`, {
+      metodo: 'POST',
+      corpo: { status: 'aprovado', horas_aprovadas: 6, motivo: 'Duas horas eram deslocamento.' },
+    });
+    assert.equal(aprovada.dados.atividade.status, 'aprovado');
+    assert.equal(aprovada.dados.atividade.horas_aprovadas, 6);
+
+    const resumo = (await ana('/api/atividades')).dados.resumo;
+    assert.equal(resumo.validado, 6, 'conta o que foi aprovado, não o declarado');
+    assert.equal(resumo.declarado, 10);
+    assert.equal(resumo.aguardando, 0);
+  });
+});
+
+test('reprovar e devolver para correção exigem motivo', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, ana } = await turmaComAluno(base);
+    const id = (await ana('/api/atividades', { metodo: 'POST', corpo: atividadeBase })).dados.atividade.id;
+
+    const semMotivo = await admin(`/api/atividades/${id}/analise`, { metodo: 'POST', corpo: { status: 'reprovado' } });
+    assert.equal(semMotivo.status, 400);
+    assert.match(semMotivo.dados.erro, /por que/i);
+
+    const semTexto = await admin(`/api/atividades/${id}/analise`, { metodo: 'POST', corpo: { status: 'correcao' } });
+    assert.equal(semTexto.status, 400);
+    assert.match(semTexto.dados.erro, /corrigido/i);
+
+    const reprovada = await admin(`/api/atividades/${id}/analise`, {
+      metodo: 'POST', corpo: { status: 'reprovado', motivo: 'O certificado não cobre essa carga.' },
+    });
+    assert.equal(reprovada.dados.atividade.status, 'reprovado');
+    assert.equal(reprovada.dados.atividade.motivo, 'O certificado não cobre essa carga.');
+
+    const resumo = (await ana('/api/atividades')).dados.resumo;
+    assert.equal(resumo.reprovado, 2.5);
+    assert.equal(resumo.validado, 0);
+    assert.equal(resumo.aguardando, 0);
+  });
+});
+
+test('a trilha guarda cada passo, e nada é apagado', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, ana } = await turmaComAluno(base);
+    const id = (await ana('/api/atividades', { metodo: 'POST', corpo: { ...atividadeBase, horas: 8 } })).dados.atividade.id;
+
+    await admin(`/api/atividades/${id}/analise`, { metodo: 'POST', corpo: { status: 'em_analise' } });
+    await admin(`/api/atividades/${id}/analise`, {
+      metodo: 'POST', corpo: { status: 'correcao', motivo: 'Falta a assinatura no certificado.' },
+    });
+    await ana(`/api/atividades/${id}`, { metodo: 'PUT', corpo: { ...atividadeBase, horas: 8, texto: 'Corrigido.' } });
+    await admin(`/api/atividades/${id}/analise`, {
+      metodo: 'POST', corpo: { status: 'aprovado', horas_aprovadas: 5, motivo: 'Aprovado com carga ajustada.' },
+    });
+
+    const { historico } = (await admin(`/api/atividades/${id}/historico`)).dados;
+    assert.equal(historico.length, 5, 'criada, em análise, correção, edição e aprovação');
+    assert.deepEqual(historico.map((h) => h.acao), ['criada', 'em_analise', 'correcao', 'editada', 'aprovado']);
+    assert.match(historico[2].descricao, /Falta a assinatura/);
+    assert.match(historico[4].descricao, /5 h/);
+    assert.match(historico[4].descricao, /havia declarado 8/);
+    assert.equal(historico[0].usuario_nome, 'Ana Ribeiro');
+    assert.equal(historico[4].papel, 'admin');
+    assert.ok(historico.every((h) => h.criado_em));
+
+    // O aluno vê a própria trilha; um colega não vê.
+    assert.equal((await ana(`/api/atividades/${id}/historico`)).status, 200);
+    const bruno = await criarAluno(base, 'Bruno', 'bruno@ex.br',
+      (await admin('/api/turmas')).dados.turmas[0].codigo);
+    assert.equal((await bruno(`/api/atividades/${id}/historico`)).status, 404);
+  });
+});
+
+test('editar depois de aprovada devolve a atividade para a fila', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, ana } = await turmaComAluno(base);
+    const id = (await ana('/api/atividades', { metodo: 'POST', corpo: atividadeBase })).dados.atividade.id;
+    await admin(`/api/atividades/${id}/analise`, { metodo: 'POST', corpo: { status: 'aprovado' } });
+    assert.equal((await ana('/api/atividades')).dados.resumo.validado, 2.5);
+
+    const editada = await ana(`/api/atividades/${id}`, {
+      metodo: 'PUT', corpo: { ...atividadeBase, horas: 5 },
+    });
+    assert.equal(editada.dados.atividade.status, 'pendente');
+    assert.equal(editada.dados.atividade.horas_aprovadas, null);
+    assert.equal(editada.dados.resumo.validado, 0);
+    assert.equal(editada.dados.resumo.aguardando, 5);
+  });
+});
+
+test('a planilha traz horas declaradas, aprovadas e o status', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, ana } = await turmaComAluno(base);
+    const id = (await ana('/api/atividades', { metodo: 'POST', corpo: { ...atividadeBase, horas: 9 } })).dados.atividade.id;
+    await admin(`/api/atividades/${id}/analise`, { metodo: 'POST', corpo: { status: 'aprovado', horas_aprovadas: 7 } });
+
+    const csv = await ana('/api/exportar.csv');
+    assert.match(csv.dados, /horas_declaradas;horas_aprovadas;status/);
+    assert.match(csv.dados, /"9";"7";"aprovado"/);
   });
 });

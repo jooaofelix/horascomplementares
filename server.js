@@ -102,6 +102,7 @@ export function criarServidor(bd = bancoLocal(), opcoes = {}) {
         token,
         usuario,
         autorizacao: req.headers.authorization,
+        ip: req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress,
         seguro: false, // servidor local roda em http://
         exigirLogin() {
           if (!usuario) throw new ErroHttp(401, 'Faça login para continuar.');

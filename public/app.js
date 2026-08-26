@@ -3,6 +3,15 @@ const $ = (sel) => document.querySelector(sel);
 // Professor, coordenação e administração compartilham o mesmo painel; o que
 // muda é o alcance de cada um, decidido no servidor.
 const EQUIPE = ['professor', 'coordenador', 'admin'];
+
+const SELO_STATUS = {
+  pendente: ['esperando', 'aguardando análise'],
+  em_analise: ['esperando', 'em análise'],
+  correcao: ['esperando', 'devolvida para correção'],
+  aprovado: ['ok', 'aprovada'],
+  reprovado: ['reprovado', 'reprovada'],
+};
+const NA_FILA = ['pendente', 'em_analise', 'correcao'];
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const estado = {
@@ -165,17 +174,19 @@ $('#btn-exportar-prof').onclick = exportar;
 function desenharResumo() {
   const r = estado.resumo;
   if (!r) return;
+  const falta = Math.max(0, r.meta - r.validado);
   $('#n-validado').textContent = horas(r.validado);
-  $('#n-declarado').textContent = horas(r.declarado);
-  $('#n-meta').textContent = horas(r.meta);
-  $('#n-registros').textContent = r.registros;
+  $('#n-aguardando').textContent = horas(r.aguardando ?? 0);
+  $('#n-reprovado').textContent = horas(r.reprovado ?? 0);
+  $('#n-restante').textContent = horas(falta);
+  $('#linha-meta').textContent =
+    `${horas(r.validado)} de ${horas(r.meta)} · ${r.registros} atividade(s) lançada(s)`;
 
   const pct = (v) => Math.min(100, (v / Math.max(r.meta, 1)) * 100);
   const validado = pct(r.validado);
   $('#barra-validado').style.width = `${validado}%`;
   $('#barra-pendente').style.width = `${Math.max(0, pct(r.declarado) - validado)}%`;
 
-  const falta = Math.max(0, r.meta - r.validado);
   $('#falta-meta').textContent = falta > 0
     ? `Faltam ${horas(falta)} validadas para fechar a meta.`
     : 'Meta de horas validadas atingida.';
@@ -209,9 +220,12 @@ function desenharCategorias() {
 }
 
 function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao = false } = {}) {
-  const selo = a.validado
-    ? `<span class="selo ok">validada${a.validado_por_nome ? ' · ' + escapar(a.validado_por_nome) : ''}</span>`
-    : '<span class="selo esperando">aguardando</span>';
+  const status = a.status || (a.validado ? 'aprovado' : 'pendente');
+  const [classe, rotulo] = SELO_STATUS[status] ?? SELO_STATUS.pendente;
+  const selo = `<span class="selo ${classe}">${rotulo}${
+    status === 'aprovado' && a.validado_por_nome ? ' · ' + escapar(a.validado_por_nome) : ''
+  }</span>`;
+  const cargaCortada = status === 'aprovado' && a.horas_aprovadas != null && a.horas_aprovadas !== a.horas;
 
   const periodo = a.data_fim && a.data_fim !== a.data_atividade
     ? `${dataBr(a.data_atividade)} a ${dataBr(a.data_fim)}`
@@ -220,6 +234,7 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
   const itens = [
     ['Data', periodo],
     ['Tipo', a.categoria],
+    cargaCortada ? ['Aprovadas', `${horas(a.horas_aprovadas)} das ${horas(a.horas)} declaradas`] : null,
     comAluno ? ['Aluno', a.aluno_nome + (a.aluno_matricula ? ` (${a.aluno_matricula})` : '')] : null,
     comAluno ? ['Turma', a.turma_nome || 'sem turma'] : null,
     a.local ? ['Local', a.local] : null,
@@ -241,8 +256,13 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
       <div class="ficha">${itens
         .map(([r, v]) => `<div><div class="rotulo">${r}</div>${escapar(v)}</div>`)
         .join('')}</div>
-      ${a.observacao ? `<div class="observacao"><strong>Professor:</strong> ${escapar(a.observacao)}</div>` : ''}
+      ${a.motivo || a.observacao
+        ? `<div class="observacao"><strong>${status === 'reprovado' ? 'Motivo da reprovação' : 'Professor'}:</strong> ${escapar(a.motivo || a.observacao)}</div>`
+        : ''}
       ${analise}
+      <details style="margin-top:10px"><summary data-historico="${a.id}">Ver histórico da solicitação</summary>
+        <div data-historico-de="${a.id}" class="sub" style="margin-top:10px">carregando…</div>
+      </details>
       ${comEdicao
         ? `<div class="acoes" style="margin-top:16px">
              <button class="secundario mini" data-editar="${a.id}">Editar</button>
@@ -251,11 +271,22 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
         : ''}
       ${comValidacao
         ? `<div style="margin-top:16px">
-             <input placeholder="Observação para o aluno (opcional)" data-obs="${a.id}"
-                    value="${escapar(a.observacao || '')}" style="margin-bottom:10px">
-             ${a.validado
-               ? `<button class="secundario mini" data-validar="${a.id}" data-valor="0">Remover validação</button>`
-               : `<button data-validar="${a.id}" data-valor="1">Validar ${horas(a.horas)}</button>`}
+             <div class="linha">
+               <div class="campo">
+                 <label>Horas a aprovar</label>
+                 <input type="number" min="0" step="0.5" inputmode="decimal" data-horas-aprovadas="${a.id}"
+                        value="${a.horas_aprovadas ?? a.horas}">
+               </div>
+               <div class="campo" style="flex:2">
+                 <label>Motivo <span class="opcional">(obrigatório para reprovar ou devolver)</span></label>
+                 <input data-motivo="${a.id}" value="${escapar(a.motivo || '')}">
+               </div>
+             </div>
+             <div class="acoes">
+               <button class="mini" data-analise="${a.id}" data-status="aprovado">Aprovar</button>
+               <button class="secundario mini" data-analise="${a.id}" data-status="correcao">Devolver para correção</button>
+               <button class="perigo mini" data-analise="${a.id}" data-status="reprovado">Reprovar</button>
+             </div>
            </div>`
         : ''}
     </article>`;
@@ -264,7 +295,9 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
 function filtrar(lista, termo, status) {
   const t = termo.trim().toLowerCase();
   return lista.filter((a) => {
-    if (status !== '' && String(a.validado) !== status) return false;
+    const dela = a.status || (a.validado ? 'aprovado' : 'pendente');
+    if (status === 'fila' && !NA_FILA.includes(dela)) return false;
+    if (status && status !== 'fila' && dela !== status) return false;
     if (!t) return true;
     return [a.titulo, a.categoria, a.local, a.responsavel, a.texto, a.aluno_nome]
       .some((campo) => String(campo || '').toLowerCase().includes(t));
@@ -469,21 +502,50 @@ function desenharListaProfessor() {
     ? lista.map((a) => cartaoAtividade(a, { comAluno: true, comValidacao: true })).join('')
     : '<p class="vazio">Nada para mostrar com esses filtros.</p>';
 
-  const pendentes = estado.atividades.filter((a) => !a.validado).length;
+  const pendentes = estado.atividades.filter((a) => NA_FILA.includes(a.status || 'pendente')).length;
   $('#contador-pendentes').textContent = pendentes ? `(${pendentes})` : '';
 }
 
-$('#lista-prof').addEventListener('click', async (e) => {
-  const id = e.target.dataset.validar;
-  if (!id) return;
-  const validando = e.target.dataset.valor === '1';
+async function mostrarHistorico(id, alvo) {
   try {
-    await api(`/api/atividades/${id}/validacao`, {
+    const { historico } = await api(`/api/atividades/${id}/historico`);
+    alvo.innerHTML = historico.length
+      ? historico.map((h) => `<div style="padding:6px 0;border-bottom:1px solid var(--linha, var(--borda))">
+          <strong>${dataBr(h.criado_em)} ${String(h.criado_em).slice(11, 16)}</strong> ·
+          ${escapar(h.usuario_nome)}${h.papel ? ` (${escapar(h.papel)})` : ''}<br>${escapar(h.descricao)}
+        </div>`).join('')
+      : 'Sem registros.';
+  } catch (err) {
+    alvo.textContent = err.message;
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const id = e.target.dataset?.historico;
+  if (!id) return;
+  const alvo = $(`[data-historico-de="${id}"]`);
+  if (alvo) mostrarHistorico(id, alvo);
+});
+
+$('#lista-prof').addEventListener('click', async (e) => {
+  const id = e.target.dataset.analise;
+  if (!id) return;
+  const status = e.target.dataset.status;
+  try {
+    await api(`/api/atividades/${id}/analise`, {
       metodo: 'POST',
-      corpo: { validado: validando, observacao: $(`[data-obs="${id}"]`)?.value || '' },
+      corpo: {
+        status,
+        horas_aprovadas: $(`[data-horas-aprovadas="${id}"]`)?.value,
+        motivo: $(`[data-motivo="${id}"]`)?.value || '',
+      },
     });
     await carregarProfessor();
-    avisar(validando ? 'Horas validadas.' : 'Validação removida.', 'ok');
+    avisar({
+      aprovado: 'Horas aprovadas.',
+      correcao: 'Devolvida ao aluno para correção.',
+      reprovado: 'Solicitação reprovada.',
+    }[status], 'ok');
   } catch (err) {
     falhar(err);
   }

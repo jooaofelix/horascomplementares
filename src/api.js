@@ -19,6 +19,16 @@ const LIMITE_TEXTO = 200_000;
 const META_PADRAO = 200;
 const LIMITE_LOTE = 200;
 
+export const STATUS = ['pendente', 'em_analise', 'aprovado', 'reprovado', 'correcao'];
+const EXIGEM_MOTIVO = ['reprovado', 'correcao'];
+const NOME_STATUS = {
+  pendente: 'aguardando análise',
+  em_analise: 'em análise',
+  aprovado: 'aprovada',
+  reprovado: 'reprovada',
+  correcao: 'devolvida para correção',
+};
+
 // Papéis da equipe, do mais restrito ao mais amplo. O professor enxerga as
 // turmas dele; o coordenador, os cursos que coordena; o admin, a faculdade.
 export const PAPEIS_EQUIPE = ['professor', 'coordenador', 'admin'];
@@ -192,6 +202,7 @@ async function professorDaChave(bd, autorizacao) {
 
 const COLUNAS_ATIVIDADE = `a.id, a.usuario_id, a.titulo, a.categoria, a.local, a.responsavel,
   a.data_atividade, a.data_fim, a.horas, a.comprovante, a.texto, a.arquivo_nome,
+  a.status, a.horas_aprovadas, a.motivo, a.analisado_em,
   a.validado, a.validado_em, a.observacao, a.criado_em, a.atualizado_em,
   u.nome AS aluno_nome, u.matricula AS aluno_matricula, t.nome AS turma_nome,
   v.nome AS validado_por_nome`;
@@ -252,8 +263,8 @@ async function porCategoria(bd, usuarioId) {
   const linhas = await bd.all(
     `SELECT cat.id, cat.nome, cat.ordem,
             r.limite_horas, r.percentual_max,
-            COALESCE(SUM(CASE WHEN a.validado = 1 THEN a.horas ELSE 0 END), 0) AS validado,
-            COALESCE(SUM(a.horas), 0) AS declarado
+            COALESCE(SUM(CASE WHEN a.status = 'aprovado' THEN COALESCE(a.horas_aprovadas, a.horas) ELSE 0 END), 0) AS validado,
+            COALESCE(SUM(CASE WHEN a.status <> 'reprovado' THEN a.horas ELSE 0 END), 0) AS declarado
        FROM categorias cat
        LEFT JOIN usuarios u ON u.id = ?
        LEFT JOIN regras_categoria r ON r.categoria_id = cat.id AND r.curso_id = u.curso_id
@@ -285,8 +296,10 @@ async function resumo(bd, usuarioId) {
   const linha = await bd.get(
     `SELECT COUNT(*) AS registros,
             COALESCE(SUM(horas), 0) AS declarado,
-            COALESCE(SUM(CASE WHEN validado = 1 THEN horas ELSE 0 END), 0) AS validado,
-            COALESCE(SUM(CASE WHEN validado = 0 THEN 1 ELSE 0 END), 0) AS pendentes
+            COALESCE(SUM(CASE WHEN status = 'aprovado' THEN COALESCE(horas_aprovadas, horas) ELSE 0 END), 0) AS validado,
+            COALESCE(SUM(CASE WHEN status IN ('pendente', 'em_analise', 'correcao') THEN horas ELSE 0 END), 0) AS aguardando,
+            COALESCE(SUM(CASE WHEN status = 'reprovado' THEN horas ELSE 0 END), 0) AS reprovado,
+            COALESCE(SUM(CASE WHEN status IN ('pendente', 'em_analise', 'correcao') THEN 1 ELSE 0 END), 0) AS pendentes
        FROM atividades WHERE usuario_id = ?`,
     usuarioId,
   );
@@ -294,6 +307,8 @@ async function resumo(bd, usuarioId) {
     registros: linha.registros,
     declarado: Math.round(linha.declarado * 100) / 100,
     validado: Math.round(linha.validado * 100) / 100,
+    aguardando: Math.round(linha.aguardando * 100) / 100,
+    reprovado: Math.round(linha.reprovado * 100) / 100,
     pendentes: linha.pendentes,
     meta: await metaDoUsuario(bd, usuarioId),
     categorias: await porCategoria(bd, usuarioId),
@@ -327,7 +342,7 @@ function escopoTurmas(usuario) {
 function paraCsv(linhas) {
   const cabecalho = [
     'aluno', 'matricula', 'turma', 'data_inicio', 'data_fim', 'atividade', 'categoria',
-    'local', 'responsavel', 'horas', 'validado', 'validado_por', 'observacao',
+    'local', 'responsavel', 'horas_declaradas', 'horas_aprovadas', 'status', 'validado_por', 'observacao',
     'comprovante', 'caracteres_analise', 'arquivo',
   ];
   const escapar = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -337,7 +352,8 @@ function paraCsv(linhas) {
       a.data_atividade, a.data_fim || '', a.titulo, a.categoria,
       a.local || '', a.responsavel || '',
       String(a.horas).replace('.', ','),
-      a.validado ? 'sim' : 'não',
+      String(a.horas_aprovadas ?? '').replace('.', ','),
+      a.status ?? (a.validado ? 'aprovado' : 'pendente'),
       a.validado_por_nome || '', a.observacao || '', a.comprovante || '',
       (a.texto || '').length, a.arquivo_nome || '',
     ]
@@ -428,10 +444,12 @@ async function importarAtividade(bd, chave, turma, item) {
       `UPDATE atividades
           SET usuario_id = ?, titulo = ?, categoria = ?, categoria_id = ?, local = ?, responsavel = ?,
               data_atividade = ?, data_fim = ?, horas = ?, comprovante = ?, texto = ?,
+              status = ?, horas_aprovadas = ?,
               validado = ?, validado_por = ?, validado_em = ?, observacao = ?, atualizado_em = ?
         WHERE id = ?`,
       aluno.id, d.titulo, d.categoria, d.categoria_id, d.local, d.responsavel, d.data_atividade, d.data_fim,
       d.horas, d.comprovante, d.texto,
+      validado ? 'aprovado' : 'pendente', validado ? d.horas : null,
       validado, validado ? chave.professor_id : null, validado ? agora : null, observacao,
       agora, existente.id,
     );
@@ -441,16 +459,40 @@ async function importarAtividade(bd, chave, turma, item) {
   const { ultimoId } = await bd.run(
     `INSERT INTO atividades
        (usuario_id, titulo, categoria, categoria_id, local, responsavel, data_atividade, data_fim, horas,
-        comprovante, texto, origem, origem_id, validado, validado_por, validado_em, observacao,
-        criado_em, atualizado_em)
-     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        comprovante, texto, origem, origem_id, status, horas_aprovadas,
+        validado, validado_por, validado_em, observacao, criado_em, atualizado_em)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     aluno.id, d.titulo, d.categoria, d.categoria_id, d.local, d.responsavel, d.data_atividade, d.data_fim, d.horas,
     d.comprovante, d.texto, chave.nome, origemId,
+    validado ? 'aprovado' : 'pendente', validado ? d.horas : null,
     validado, validado ? chave.professor_id : null, validado ? agora : null, observacao,
     agora, agora,
   );
   return { status: 'criada', atividade_id: ultimoId, aluno_criado: aluno.criado };
 }
+
+// ---------- auditoria ----------
+
+// Cada passo vira uma linha nova. Nada aqui é editado ou apagado depois: o
+// nome e o papel de quem agiu ficam congelados no momento do registro.
+async function registrar(bd, ctx, entidade, entidadeId, acao, descricao, dados = null) {
+  await bd.run(
+    `INSERT INTO auditoria(entidade, entidade_id, acao, descricao, dados,
+                           usuario_id, usuario_nome, papel, ip, criado_em)
+     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    entidade, entidadeId, acao, descricao,
+    dados ? JSON.stringify(dados) : null,
+    ctx.usuario?.id ?? null, ctx.usuario?.nome ?? 'sistema', ctx.usuario?.papel ?? null,
+    ctx.ip ?? null, new Date().toISOString(),
+  );
+}
+
+const historico = (bd, entidade, entidadeId) =>
+  bd.all(
+    `SELECT id, acao, descricao, dados, usuario_nome, papel, criado_em
+       FROM auditoria WHERE entidade = ? AND entidade_id = ? ORDER BY id`,
+    entidade, entidadeId,
+  );
 
 // ---------- arquivos ----------
 
@@ -882,6 +924,10 @@ export function criarRotas(bd, opcoes = {}) {
         usuario.id, d.titulo, d.categoria, d.categoria_id, d.local, d.responsavel,
         d.data_atividade, d.data_fim, d.horas, d.comprovante, d.texto, d.arquivo_nome, agora, agora,
       );
+      await registrar(bd, ctx, 'atividade', ultimoId, 'criada',
+        `Atividade lançada pelo aluno: ${d.titulo} (${d.horas} h declaradas).`,
+        { horas: d.horas, categoria: d.categoria });
+
       return {
         status: 201,
         corpo: { atividade: await buscarAtividade(bd, ultimoId), resumo: await resumo(bd, usuario.id) },
@@ -900,11 +946,16 @@ export function criarRotas(bd, opcoes = {}) {
         `UPDATE atividades
             SET titulo = ?, categoria = ?, categoria_id = ?, local = ?, responsavel = ?,
                 data_atividade = ?, data_fim = ?, horas = ?, comprovante = ?, texto = ?, arquivo_nome = ?,
+                status = 'pendente', horas_aprovadas = NULL, analisado_por = NULL, analisado_em = NULL,
                 validado = 0, validado_por = NULL, validado_em = NULL, atualizado_em = ?
           WHERE id = ?`,
         d.titulo, d.categoria, d.categoria_id, d.local, d.responsavel, d.data_atividade, d.data_fim,
         d.horas, d.comprovante, d.texto, d.arquivo_nome, new Date().toISOString(), atual.id,
       );
+      await registrar(bd, ctx, 'atividade', atual.id, 'editada',
+        `Aluno editou a atividade; ela volta para a fila de análise.`,
+        { antes: { horas: atual.horas, titulo: atual.titulo }, depois: { horas: d.horas, titulo: d.titulo } });
+
       return { corpo: { atividade: await buscarAtividade(bd, atual.id), resumo: await resumo(bd, usuario.id) } };
     }],
 
@@ -920,24 +971,71 @@ export function criarRotas(bd, opcoes = {}) {
       return { corpo: { ok: true, resumo: await resumo(bd, atual.usuario_id) } };
     }],
 
-    ['POST', /^\/api\/atividades\/(\d+)\/validacao$/, async (ctx) => {
-      const professor = exigirEquipe(ctx.exigirLogin());
+    // Análise da solicitação: aprova, reprova, devolve para correção ou marca
+    // que está em análise — sempre deixando rastro.
+    ['POST', /^\/api\/atividades\/(\d+)\/analise$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
       const id = Number(ctx.parametros[0]);
-      if (!(await atividadeVisivelAEquipe(bd, id, professor))) {
+      if (!(await atividadeVisivelAEquipe(bd, id, equipe))) {
         throw erro(404, 'Atividade não encontrada no que você acompanha.');
       }
+      const atual = await buscarAtividade(bd, id);
 
-      const validado = ctx.corpo.validado ? 1 : 0;
-      const observacao =
-        texto(ctx.corpo.observacao, 'a observação', { obrigatorio: false, max: 2000 }) || null;
+      const status = texto(ctx.corpo.status, 'o status', { max: 20 });
+      if (!STATUS.includes(status)) throw erro(400, 'Status inválido.');
+
+      const motivo = texto(ctx.corpo.motivo ?? ctx.corpo.observacao, 'o motivo', { obrigatorio: false, max: 2000 }) || null;
+      if (EXIGEM_MOTIVO.includes(status) && !motivo) {
+        throw erro(400, status === 'reprovado'
+          ? 'Diga ao aluno por que a atividade foi reprovada.'
+          : 'Diga ao aluno o que precisa ser corrigido.');
+      }
+
+      let horasAprovadas = null;
+      if (status === 'aprovado') {
+        horasAprovadas = Number(ctx.corpo.horas_aprovadas ?? atual.horas);
+        if (!Number.isFinite(horasAprovadas) || horasAprovadas <= 0) throw erro(400, 'Horas aprovadas inválidas.');
+        if (horasAprovadas > atual.horas) {
+          throw erro(400, `O aluno declarou ${atual.horas} h; não dá para aprovar mais do que isso.`);
+        }
+      }
+
       const agora = new Date().toISOString();
       await bd.run(
         `UPDATE atividades
-            SET validado = ?, validado_por = ?, validado_em = ?, observacao = ?, atualizado_em = ?
+            SET status = ?, horas_aprovadas = ?, motivo = ?, observacao = ?,
+                analisado_por = ?, analisado_em = ?,
+                validado = ?, validado_por = ?, validado_em = ?, atualizado_em = ?
           WHERE id = ?`,
-        validado, validado ? professor.id : null, validado ? agora : null, observacao, agora, id,
+        status, horasAprovadas, motivo, motivo,
+        equipe.id, agora,
+        status === 'aprovado' ? 1 : 0,
+        status === 'aprovado' ? equipe.id : null,
+        status === 'aprovado' ? agora : null,
+        agora, id,
       );
+
+      const cortou = status === 'aprovado' && horasAprovadas !== atual.horas;
+      await registrar(bd, ctx, 'atividade', id, status,
+        `Solicitação ${NOME_STATUS[status]}` +
+        (status === 'aprovado' ? ` com ${horasAprovadas} h` : '') +
+        (cortou ? ` (o aluno havia declarado ${atual.horas} h)` : '') +
+        (motivo ? `. Motivo: ${motivo}` : '.'),
+        { de: atual.status, para: status, horas_declaradas: atual.horas, horas_aprovadas: horasAprovadas });
+
       return { corpo: { atividade: await buscarAtividade(bd, id) } };
+    }],
+
+    ['GET', /^\/api\/atividades\/(\d+)\/historico$/, async (ctx) => {
+      const usuario = ctx.exigirLogin();
+      const id = Number(ctx.parametros[0]);
+      const atividade = await buscarAtividade(bd, id);
+      if (!atividade) throw erro(404, 'Atividade não encontrada.');
+      const proprio = atividade.usuario_id === usuario.id;
+      if (!proprio && !(await atividadeVisivelAEquipe(bd, id, usuario))) {
+        throw erro(404, 'Atividade não encontrada.');
+      }
+      return { corpo: { historico: await historico(bd, 'atividade', id) } };
     }],
 
     ['GET', /^\/api\/turma$/, async (ctx) => {
@@ -949,8 +1047,8 @@ export function criarRotas(bd, opcoes = {}) {
                 t.nome AS turma_nome, t.meta_horas, c.nome AS curso_nome, c.horas_obrigatorias,
                 COUNT(a.id) AS registros,
                 COALESCE(SUM(a.horas), 0) AS declarado,
-                COALESCE(SUM(CASE WHEN a.validado = 1 THEN a.horas ELSE 0 END), 0) AS validado,
-                COALESCE(SUM(CASE WHEN a.validado = 0 THEN 1 ELSE 0 END), 0) AS pendentes
+                COALESCE(SUM(CASE WHEN a.status = 'aprovado' THEN COALESCE(a.horas_aprovadas, a.horas) ELSE 0 END), 0) AS validado,
+                COALESCE(SUM(CASE WHEN a.status IN ('pendente', 'em_analise', 'correcao') THEN 1 ELSE 0 END), 0) AS pendentes
            FROM usuarios u
            JOIN turmas t ON t.id = u.turma_id
            LEFT JOIN cursos c ON c.id = COALESCE(u.curso_id, t.curso_id)
@@ -1485,13 +1583,14 @@ export function criarRotas(bd, opcoes = {}) {
             : await bd.get("SELECT id, nome FROM categorias WHERE nome = 'Outro'");
           const campos = [
             entrega.tarefa_titulo, categoria?.nome ?? 'Outro', categoria?.id ?? null,
-            horas, entrega.texto || '', entrega.arquivo_nome ?? null, observacao, equipe.id, agora,
+            horas, entrega.texto || '', entrega.arquivo_nome ?? null, observacao, horas, equipe.id, agora,
           ];
           if (atividadeId) {
             await bd.run(
               `UPDATE atividades
                   SET titulo = ?, categoria = ?, categoria_id = ?, horas = ?, texto = ?, arquivo_nome = ?,
-                      observacao = ?, validado = 1, validado_por = ?, validado_em = ?, atualizado_em = ?
+                      observacao = ?, status = 'aprovado', horas_aprovadas = ?,
+                      validado = 1, validado_por = ?, validado_em = ?, atualizado_em = ?
                 WHERE id = ?`,
               ...campos, agora, atividadeId,
             );
@@ -1499,11 +1598,12 @@ export function criarRotas(bd, opcoes = {}) {
             const criada = await bd.run(
               `INSERT INTO atividades
                  (usuario_id, titulo, categoria, categoria_id, data_atividade, horas, texto, arquivo_nome,
-                  observacao, validado, validado_por, validado_em, origem, criado_em, atualizado_em)
-               VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 'Tarefa da turma', ?, ?)`,
+                  observacao, status, horas_aprovadas, validado, validado_por, validado_em, origem,
+                  criado_em, atualizado_em)
+               VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 'aprovado', ?, 1, ?, ?, 'Tarefa da turma', ?, ?)`,
               entrega.aluno_id, entrega.tarefa_titulo, categoria?.nome ?? 'Outro', categoria?.id ?? null,
               agora.slice(0, 10), horas, entrega.texto || '', entrega.arquivo_nome ?? null,
-              observacao, equipe.id, agora, agora, agora,
+              observacao, horas, equipe.id, agora, agora, agora,
             );
             atividadeId = criada.ultimoId;
           }

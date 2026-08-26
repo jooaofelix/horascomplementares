@@ -67,6 +67,7 @@ npx wrangler d1 execute horas-complementares --remote --file=migracoes/003-saas-
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/005-integracao.sql
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/006-cursos-categorias-papeis.sql
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/007-aulas-materiais-entregas.sql
+npx wrangler d1 execute horas-complementares --remote --file=migracoes/008-status-e-auditoria.sql
 npx wrangler d1 execute horas-complementares --remote --file=migracoes/004-convites-de-professor.sql
 ```
 
@@ -203,6 +204,39 @@ conteúdo, que é o que permitirá verificar mais adiante se o documento aprovad
 
 Categorias disponíveis: Observação em campo, Registro cursivo, Análise de material,
 Leitura / fichamento, Supervisão, Seminário / evento, Extensão / projeto, Outro.
+
+## Status e trilha de auditoria
+
+Cada atividade percorre um fluxo, não um sim-ou-não:
+
+| Status | O que significa |
+| --- | --- |
+| **aguardando análise** | o aluno lançou, ninguém abriu ainda |
+| **em análise** | a coordenação assumiu a solicitação |
+| **devolvida para correção** | falta algo — o motivo é obrigatório e aparece para o aluno |
+| **aprovada** | virou hora válida, com a carga que a coordenação definiu |
+| **reprovada** | não conta; o motivo é obrigatório |
+
+A coordenação pode **aprovar com menos horas** do que o aluno declarou (nunca mais). O painel do
+aluno mostra os dois números — "6 h das 10 h declaradas" — e o total considera sempre as aprovadas.
+Editar uma atividade já analisada devolve ela para a fila.
+
+Toda mudança grava uma linha na tabela `auditoria`: ação, descrição legível, quem fez, com qual
+papel, de qual IP e quando. **Nada é editado ou apagado** — o histórico só cresce. Aluno e
+coordenação abrem a trilha em "Ver histórico da solicitação":
+
+```
+26/08/2026 02:17 · Ana Ribeiro (aluno)
+Atividade lançada pelo aluno: Congresso de Psicologia Escolar (10 h declaradas).
+
+26/08/2026 02:17 · Profa. Marina Alves (admin)
+Solicitação devolvida para correção. Motivo: Anexe o certificado com a carga horária.
+
+26/08/2026 02:18 · Profa. Marina Alves (admin)
+Solicitação aprovada com 6 h (o aluno havia declarado 10 h).
+```
+
+É essa trilha que sustenta o código de validação, o QR Code e a página pública de autenticidade.
 
 ## Como funciona a validação
 

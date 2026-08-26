@@ -51,6 +51,7 @@ export default {
         token,
         usuario,
         autorizacao: request.headers.get('authorization'),
+        ip: request.headers.get('cf-connecting-ip'),
         seguro: url.protocol === 'https:',
         exigirLogin() {
           if (!usuario) throw new ErroHttp(401, 'Faça login para continuar.');

@@ -28,6 +28,11 @@ const COLUNAS_NOVAS = [
   ['usuarios', 'pode_convidar', 'INTEGER NOT NULL DEFAULT 0'],
   ['usuarios', 'pre_cadastrado', 'INTEGER NOT NULL DEFAULT 0'],
   ['atividades', 'origem', 'TEXT'],
+  ['atividades', 'status', "TEXT NOT NULL DEFAULT 'pendente'"],
+  ['atividades', 'horas_aprovadas', 'REAL'],
+  ['atividades', 'motivo', 'TEXT'],
+  ['atividades', 'analisado_por', 'INTEGER REFERENCES usuarios(id) ON DELETE SET NULL'],
+  ['atividades', 'analisado_em', 'TEXT'],
   ['atividades', 'categoria_id', 'INTEGER REFERENCES categorias(id) ON DELETE SET NULL'],
   ['usuarios', 'curso_id', 'INTEGER REFERENCES cursos(id) ON DELETE SET NULL'],
   ['usuarios', 'semestre', 'TEXT'],
@@ -61,6 +66,10 @@ function garantirColunas(db) {
       ON atividades(origem, origem_id) WHERE origem_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_chaves_professor ON chaves_api(professor_id);
     CREATE INDEX IF NOT EXISTS idx_usuarios_curso ON usuarios(curso_id);
+    CREATE INDEX IF NOT EXISTS idx_auditoria_entidade ON auditoria(entidade, entidade_id, id);
+    CREATE INDEX IF NOT EXISTS idx_atividades_status ON atividades(status);
+    UPDATE atividades SET status = 'aprovado', horas_aprovadas = horas
+     WHERE validado = 1 AND status = 'pendente';
     CREATE INDEX IF NOT EXISTS idx_regras_curso ON regras_categoria(curso_id);
 
     -- Liga o que já existia à estrutura acadêmica nova. Numa instalação nova

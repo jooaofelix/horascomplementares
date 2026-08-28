@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { bancoLocal } from './src/sqlite.js';
 import { armazenamentoDisco } from './src/arquivos-disco.js';
 import { lerCookies, usuarioDaSessao } from './src/auth.js';
-import { criarRotas, despachar, ErroHttp } from './src/api.js';
+import { criarRotas, despachar, ErroHttp, erroDeBancoAtrasado, AVISO_BANCO_ATRASADO } from './src/api.js';
 
 const RAIZ = path.dirname(fileURLToPath(import.meta.url));
 const PUBLICO = path.join(RAIZ, 'public');
@@ -123,7 +123,9 @@ export function criarServidor(bd = bancoLocal(), opcoes = {}) {
     } catch (e) {
       if (e instanceof ErroHttp) return responderJson(res, e.status, { erro: e.message });
       console.error('Erro inesperado:', e);
-      responderJson(res, 500, { erro: 'Erro interno do servidor.' });
+      responderJson(res, 500, {
+        erro: erroDeBancoAtrasado(e) ? AVISO_BANCO_ATRASADO : 'Erro interno do servidor.',
+      });
     }
   });
 

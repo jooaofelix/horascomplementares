@@ -4,7 +4,7 @@
 import { adaptarD1 } from './src/d1.js';
 import { armazenamentoR2, armazenamentoD1 } from './src/arquivos.js';
 import { lerCookies, usuarioDaSessao } from './src/auth.js';
-import { criarRotas, despachar, ErroHttp } from './src/api.js';
+import { criarRotas, despachar, ErroHttp, erroDeBancoAtrasado, AVISO_BANCO_ATRASADO } from './src/api.js';
 
 const json = (corpo, status = 200, cabecalhos = {}) =>
   new Response(JSON.stringify(corpo), {
@@ -69,7 +69,10 @@ export default {
     } catch (e) {
       if (e instanceof ErroHttp) return json({ erro: e.message }, e.status);
       console.error('Erro inesperado:', e);
-      return json({ erro: 'Erro interno do servidor.' }, 500);
+      return json(
+        { erro: erroDeBancoAtrasado(e) ? AVISO_BANCO_ATRASADO : 'Erro interno do servidor.' },
+        500,
+      );
     }
   },
 };

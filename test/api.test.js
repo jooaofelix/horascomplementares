@@ -1799,3 +1799,34 @@ test('anotação só é editada por quem escreveu, e só sobre aluno ao alcance'
     assert.equal((await admin(`/api/alunos/${alunoId}/anotacoes`)).dados.anotacoes.length, 0);
   });
 });
+
+// Migração que ficou para trás é o erro mais comum depois de publicar: a tela
+// precisa dizer o que fazer, não um "erro interno" que não ajuda ninguém.
+test('banco atrás do código responde dizendo que faltam migrações', async () => {
+  const bd = bancoLocal(':memory:');
+  const atrasado = {
+    ...bd,
+    async run(sql, ...parametros) {
+      if (/INSERT INTO atividades/i.test(sql)) {
+        throw new Error('SQLITE_ERROR: table atividades has no column named arquivo_id');
+      }
+      return bd.run(sql, ...parametros);
+    },
+  };
+  const servidor = criarServidor(atrasado, { arquivos: armazenamentoD1(bd) });
+  await new Promise((r) => servidor.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${servidor.address().port}`;
+
+  try {
+    const professor = await criarProfessor(base);
+    const turma = await criarTurma(professor, 'Manhã');
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', turma.codigo);
+
+    const r = await ana('/api/atividades', { metodo: 'POST', corpo: atividadeBase });
+    assert.equal(r.status, 500);
+    assert.match(r.dados.erro, /faltam migrações/);
+    assert.match(r.dados.erro, /npm run banco:migrar/);
+  } finally {
+    await new Promise((r) => servidor.close(r));
+  }
+});

@@ -2161,6 +2161,17 @@ export function criarRotas(bd, opcoes = {}) {
   ];
 }
 
+// Coluna ou tabela que falta é sempre a mesma história: o banco publicado ficou
+// atrás do código, porque as migrações novas não rodaram. Dizer isso na tela
+// poupa uma caçada — o erro genérico não ajudava ninguém.
+export function erroDeBancoAtrasado(e) {
+  return /no such column|no such table|has no column/i.test(String(e?.message || ''));
+}
+
+export const AVISO_BANCO_ATRASADO =
+  'O banco de dados está atrás do código: faltam migrações. '
+  + 'No computador de quem publica: npm run banco:migrar';
+
 // Encontra a rota e executa o handler. Compartilhado pelo servidor Node e pelo Worker.
 export async function despachar(rotas, ctx) {
   const rota = rotas.find(([metodo, padrao]) => metodo === ctx.metodo && padrao.test(ctx.url.pathname));

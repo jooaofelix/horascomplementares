@@ -183,15 +183,24 @@
             <input id="ativ-responsavel" maxlength="120" placeholder="Quem supervisionou">
           </div>
           <div class="campo">
-            <label for="ativ-comprovante">Comprovante <span class="opcional">(opcional)</span></label>
-            <input id="ativ-comprovante" maxlength="300" placeholder="Nº do certificado ou link">
+            <label for="ativ-comprovante">Nº ou link do certificado <span class="opcional">(opcional)</span></label>
+            <input id="ativ-comprovante" maxlength="300" placeholder="Ex.: Certificado 2026/114">
           </div>
+        </div>
+
+        <div class="campo">
+          <label for="ativ-arquivo">Comprovante em arquivo <span class="opcional">(opcional)</span></label>
+          <input type="file" id="ativ-arquivo" accept=".pdf,.pptx,.ppt,.odp,.docx,.doc,.odt,.xlsx,.xls,.jpg,.jpeg,.png,.webp,.heic,.txt,.md,.csv">
+          <div class="ajuda" id="ajuda-formatos-atividade">
+            O certificado, a declaração ou a foto dele — PDF, imagem ou documento.
+          </div>
+          <div class="ajuda oculto" id="anexo-atual"></div>
         </div>
 
         <div class="campo">
           <label for="ativ-texto">Sua análise / registro</label>
           <div class="zona-arquivo" id="zona-arquivo">
-            Toque para anexar um arquivo <strong>.txt</strong> ou <strong>.md</strong>
+            Colar de um arquivo <strong>.txt</strong> ou <strong>.md</strong> aqui dentro
           </div>
           <input type="file" id="entrada-arquivo" class="oculto" accept=".txt,.md,.markdown,text/plain">
           <textarea id="ativ-texto" placeholder="Escreva aqui a sua análise, ou anexe um arquivo de texto."></textarea>

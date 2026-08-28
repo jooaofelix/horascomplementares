@@ -266,6 +266,16 @@ O professor vê a fila (`3 a avaliar`), lê a entrega e decide:
   categoria da tarefa e o texto entregue. Ninguém redigita nada. Reavaliar com outra carga corrige a
   mesma atividade em vez de criar outra.
 
+## Comprovante da hora complementar
+
+Ao lançar uma hora, o aluno anexa o comprovante: o certificado em PDF, a declaração assinada, a foto
+do papel. O arquivo fica guardado no sistema com hash SHA-256, e o professor abre direto do cartão da
+atividade na hora de validar — não precisa pedir por e-mail nem confiar só no número do certificado.
+
+Quem abre: o aluno que lançou e a equipe que acompanha a turma dele. Professor de outra turma recebe
+404, e há teste para isso. Editar a atividade sem escolher outro arquivo mantém o que já estava
+anexado.
+
 ### Formatos aceitos
 
 PDF · PPTX, PPT, ODP · DOCX, DOC, ODT · XLSX, XLS, CSV · JPG, PNG, WEBP, HEIC · TXT, MD

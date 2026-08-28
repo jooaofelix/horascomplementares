@@ -416,6 +416,11 @@ await lancar('Ana Ribeiro', {
   horas: 12,
   comprovante: 'Certificado 2026/114',
   texto: 'Três dias de mesas sobre primeira infância. A mesa de sexta mudou meu recorte de campo.',
+  arquivo: anexo('certificado-congresso.pdf', 'Certificado de participacao', [
+    'Certificamos que Ana Ribeiro participou do',
+    'Congresso de Psicologia do Desenvolvimento,',
+    'com carga horaria de 12 horas.',
+  ]),
 });
 await lancar('Bruno Tavares', {
   titulo: 'Monitoria de Estatística',

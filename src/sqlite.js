@@ -48,6 +48,7 @@ const COLUNAS_NOVAS = [
   ['materiais', 'materia_id', 'INTEGER REFERENCES materias(id) ON DELETE CASCADE'],
   ['tarefas', 'nota_maxima', 'REAL'],
   ['entregas', 'nota', 'REAL'],
+  ['atividades', 'arquivo_id', 'INTEGER REFERENCES arquivos(id) ON DELETE SET NULL'],
 ];
 
 function garantirColunas(db) {

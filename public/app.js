@@ -287,6 +287,11 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
       <div class="ficha">${itens
         .map(([r, v]) => `<div><div class="rotulo">${r}</div>${escapar(v)}</div>`)
         .join('')}</div>
+      ${a.arquivo_id
+        ? `<p class="sub" style="margin:12px 0 0">Comprovante:
+             <a href="/api/arquivos/${a.arquivo_id}" target="_blank" rel="noopener">${
+               escapar(a.arquivo_nome || 'abrir arquivo')}</a></p>`
+        : a.arquivo_nome ? `<p class="sub" style="margin:12px 0 0">Arquivo: ${escapar(a.arquivo_nome)}</p>` : ''}
       ${a.motivo || a.observacao
         ? `<div class="observacao"><strong>${status === 'reprovado' ? 'Motivo da reprovação' : 'Professor'}:</strong> ${escapar(a.motivo || a.observacao)}</div>`
         : ''}
@@ -359,6 +364,7 @@ function limparFormulario() {
   $('#titulo-formulario').textContent = 'Nova atividade';
   $('#btn-salvar').textContent = 'Salvar atividade';
   formulario.arquivoNome = null;
+  $('#anexo-atual').classList.add('oculto');
   atualizarContador();
 }
 
@@ -388,7 +394,10 @@ $('#form-atividade').onsubmit = async (e) => {
     arquivo_nome: formulario.arquivoNome,
   };
   try {
+    // O comprovante em arquivo sobe junto com o resto do formulário.
+    corpo.arquivo = await lerParaEnvio($('#ativ-arquivo'));
     await api(id ? `/api/atividades/${id}` : '/api/atividades', { metodo: id ? 'PUT' : 'POST', corpo });
+    $('#ativ-arquivo').value = '';
     limparFormulario();
     abrirFormulario(false);
     await carregarAtividades();
@@ -417,6 +426,14 @@ $('#lista-aluno').addEventListener('click', async (e) => {
     $('#ativ-comprovante').value = a.comprovante || '';
     $('#ativ-texto').value = a.texto;
     formulario.arquivoNome = a.arquivo_nome;
+    $('#ativ-arquivo').value = '';
+    // Já tem comprovante anexado: só troca se o aluno escolher outro arquivo.
+    $('#anexo-atual').classList.toggle('oculto', !a.arquivo_id);
+    if (a.arquivo_id) {
+      $('#anexo-atual').innerHTML =
+        `Já anexado: <a href="/api/arquivos/${a.arquivo_id}" target="_blank" rel="noopener">${
+          escapar(a.arquivo_nome || 'comprovante')}</a> — escolha outro arquivo só se quiser trocar.`;
+    }
     atualizarContador();
     $('#titulo-formulario').textContent = 'Editando atividade';
     $('#btn-salvar').textContent = 'Salvar alterações';

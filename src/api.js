@@ -234,7 +234,7 @@ async function professorDaChave(bd, autorizacao) {
 // ---------- consultas ----------
 
 const COLUNAS_ATIVIDADE = `a.id, a.usuario_id, a.titulo, a.categoria, a.local, a.responsavel,
-  a.data_atividade, a.data_fim, a.horas, a.comprovante, a.texto, a.arquivo_nome,
+  a.data_atividade, a.data_fim, a.horas, a.comprovante, a.texto, a.arquivo_nome, a.arquivo_id,
   a.status, a.horas_aprovadas, a.motivo, a.analisado_em,
   a.validado, a.validado_em, a.observacao, a.criado_em, a.atualizado_em,
   u.nome AS aluno_nome, u.matricula AS aluno_matricula, t.nome AS turma_nome,
@@ -651,6 +651,13 @@ async function arquivoPermitido(bd, arquivoId, usuario) {
   if (entrega) {
     if (usuario.papel === 'aluno') return entrega.aluno_id === usuario.id ? arquivo : null;
     return (await alcanca(bd, 'tarefas_materias', 'tarefa_id', entrega.tarefa_id, usuario)) ? arquivo : null;
+  }
+
+  // Comprovante de hora complementar: do aluno que lançou e de quem valida.
+  const atividade = await bd.get('SELECT id, usuario_id FROM atividades WHERE arquivo_id = ?', arquivoId);
+  if (atividade) {
+    if (usuario.papel === 'aluno') return atividade.usuario_id === usuario.id ? arquivo : null;
+    return (await atividadeVisivelAEquipe(bd, atividade.id, usuario)) ? arquivo : null;
   }
 
   const material = await bd.get('SELECT id, aula_id, materia_id FROM materiais WHERE arquivo_id = ?', arquivoId);
@@ -1269,14 +1276,19 @@ export function criarRotas(bd, opcoes = {}) {
     ['POST', /^\/api\/atividades$/, async (ctx) => {
       const usuario = ctx.exigirLogin();
       const d = await validarAtividade(bd, ctx.corpo);
+      // O comprovante em PDF (ou foto) vem junto e fica guardado no sistema.
+      const anexo = ctx.corpo.arquivo
+        ? await guardarArquivo(bd, opcoes.arquivos, usuario, ctx.corpo.arquivo)
+        : null;
       const agora = new Date().toISOString();
       const { ultimoId } = await bd.run(
         `INSERT INTO atividades
            (usuario_id, titulo, categoria, categoria_id, local, responsavel, data_atividade, data_fim,
-            horas, comprovante, texto, arquivo_nome, criado_em, atualizado_em)
-         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            horas, comprovante, texto, arquivo_nome, arquivo_id, criado_em, atualizado_em)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         usuario.id, d.titulo, d.categoria, d.categoria_id, d.local, d.responsavel,
-        d.data_atividade, d.data_fim, d.horas, d.comprovante, d.texto, d.arquivo_nome, agora, agora,
+        d.data_atividade, d.data_fim, d.horas, d.comprovante, d.texto,
+        anexo ? anexo.nome : d.arquivo_nome, anexo ? anexo.id : null, agora, agora,
       );
       await registrar(bd, ctx, 'atividade', ultimoId, 'criada',
         `Atividade lançada pelo aluno: ${d.titulo} (${d.horas} h declaradas).`,
@@ -1295,16 +1307,24 @@ export function criarRotas(bd, opcoes = {}) {
       if (atual.usuario_id !== usuario.id) throw erro(403, 'Essa atividade é de outro aluno.');
 
       const d = await validarAtividade(bd, ctx.corpo);
+      // Sem anexo novo, o que já estava continua valendo.
+      const anexo = ctx.corpo.arquivo
+        ? await guardarArquivo(bd, opcoes.arquivos, usuario, ctx.corpo.arquivo)
+        : null;
       // Editar o conteúdo derruba o selo do professor: ele revalida a versão nova.
       await bd.run(
         `UPDATE atividades
             SET titulo = ?, categoria = ?, categoria_id = ?, local = ?, responsavel = ?,
-                data_atividade = ?, data_fim = ?, horas = ?, comprovante = ?, texto = ?, arquivo_nome = ?,
+                data_atividade = ?, data_fim = ?, horas = ?, comprovante = ?, texto = ?,
+                arquivo_nome = ?, arquivo_id = ?,
                 status = 'pendente', horas_aprovadas = NULL, analisado_por = NULL, analisado_em = NULL,
                 validado = 0, validado_por = NULL, validado_em = NULL, atualizado_em = ?
           WHERE id = ?`,
         d.titulo, d.categoria, d.categoria_id, d.local, d.responsavel, d.data_atividade, d.data_fim,
-        d.horas, d.comprovante, d.texto, d.arquivo_nome, new Date().toISOString(), atual.id,
+        d.horas, d.comprovante, d.texto,
+        anexo ? anexo.nome : (d.arquivo_nome ?? atual.arquivo_nome),
+        anexo ? anexo.id : atual.arquivo_id,
+        new Date().toISOString(), atual.id,
       );
       await registrar(bd, ctx, 'atividade', atual.id, 'editada',
         `Aluno editou a atividade; ela volta para a fila de análise.`,

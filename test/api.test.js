@@ -1542,6 +1542,40 @@ test('editar a aula troca as turmas que a recebem', async () => {
 
 // ---------------------------------------------------------------- matérias
 
+test('o aluno anexa o comprovante em PDF na atividade, e só quem valida abre', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const turma = await criarTurma(admin, 'Manhã');
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', turma.codigo);
+    const outra = await criarProfessorConvidado(base, admin, 'Profa. Sonia', 'sonia@ex.br');
+    const deFora = await criarAluno(
+      base, 'Bruno', 'bruno@ex.br', (await criarTurma(outra, 'Outra')).codigo,
+    );
+
+    const criada = await ana('/api/atividades', {
+      metodo: 'POST',
+      corpo: { ...atividadeBase, arquivo: arquivoExemplo('certificado.pdf') },
+    });
+    assert.equal(criada.status, 201, JSON.stringify(criada.dados));
+    const atividade = criada.dados.atividade;
+    assert.ok(atividade.arquivo_id, 'a atividade guarda o arquivo, não só o nome');
+    assert.equal(atividade.arquivo_nome, 'certificado.pdf');
+
+    // O aluno baixa o próprio comprovante; o professor da turma também.
+    assert.equal((await ana(`/api/arquivos/${atividade.arquivo_id}`)).status, 200);
+    assert.equal((await admin(`/api/arquivos/${atividade.arquivo_id}`)).status, 200);
+    // Quem não acompanha esse aluno, não.
+    assert.equal((await outra(`/api/arquivos/${atividade.arquivo_id}`)).status, 404);
+    assert.equal((await deFora(`/api/arquivos/${atividade.arquivo_id}`)).status, 404);
+
+    // Editar sem mandar arquivo novo mantém o que já estava anexado.
+    const editada = await ana(`/api/atividades/${atividade.id}`, {
+      metodo: 'PUT', corpo: { ...atividadeBase, horas: 3 },
+    });
+    assert.equal(editada.dados.atividade.arquivo_id, atividade.arquivo_id);
+  });
+});
+
 test('tarefa de matéria sem horas é corrigida com nota, não com hora complementar', async () => {
   await comAmbiente(async ({ base }) => {
     const admin = await criarProfessor(base);

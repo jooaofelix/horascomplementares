@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS atividades (
   comprovante    TEXT,
   texto          TEXT NOT NULL DEFAULT '',
   arquivo_nome   TEXT,
+  arquivo_id     INTEGER REFERENCES arquivos(id) ON DELETE SET NULL,
   origem         TEXT,
   origem_id      TEXT,
   status         TEXT NOT NULL DEFAULT 'pendente',

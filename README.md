@@ -279,8 +279,11 @@ Na área da análise, arquivo `.txt` ou `.md` continua entrando **como texto** d
 revisar e editar antes de salvar. Qualquer outro formato (o caso comum: o relatório em PDF) fica
 anexado à atividade, e o nome do arquivo já preenche o título quando ele está vazio.
 
-Os dois ficam guardados com hash SHA-256, e o professor abre os dois direto do cartão da atividade na
-hora de validar — não precisa pedir por e-mail. Quem abre: o aluno que lançou e a equipe que acompanha
+Os dois ficam guardados com hash SHA-256, e aparecem no cartão da atividade com três opções para o
+professor: **Baixar**, **Abrir em outra aba** e **Ver aqui mesmo** — que abre o PDF (ou a imagem)
+dentro da própria página, sem sair da fila de validação. Vale igual para o arquivo que o aluno
+entregou numa tarefa, na fila de correção. Formato que o navegador não abre (Word, planilha) mostra
+só Baixar, dizendo isso. Quem abre: o aluno que lançou e a equipe que acompanha
 a turma dele; professor de outra turma recebe 404, e há teste para isso. Editar a atividade sem
 escolher outro arquivo mantém o que já estava anexado.
 

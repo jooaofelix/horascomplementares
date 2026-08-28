@@ -287,16 +287,10 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
       <div class="ficha">${itens
         .map(([r, v]) => `<div><div class="rotulo">${r}</div>${escapar(v)}</div>`)
         .join('')}</div>
-      ${a.analise_arquivo_id
-        ? `<p class="sub" style="margin:12px 0 0">Relatório:
-             <a href="/api/arquivos/${a.analise_arquivo_id}" target="_blank" rel="noopener">${
-               escapar(a.analise_arquivo_nome || 'abrir arquivo')}</a></p>`
-        : ''}
-      ${a.arquivo_id
-        ? `<p class="sub" style="margin:12px 0 0">Comprovante:
-             <a href="/api/arquivos/${a.arquivo_id}" target="_blank" rel="noopener">${
-               escapar(a.arquivo_nome || 'abrir arquivo')}</a></p>`
-        : a.arquivo_nome ? `<p class="sub" style="margin:12px 0 0">Arquivo: ${escapar(a.arquivo_nome)}</p>` : ''}
+      ${visorArquivo(a.analise_arquivo_id, a.analise_arquivo_nome, a.analise_arquivo_tipo, 'Relatório do aluno')}
+      ${visorArquivo(a.arquivo_id, a.arquivo_nome, a.arquivo_tipo, 'Comprovante')}
+      ${!a.arquivo_id && a.arquivo_nome
+        ? `<p class="sub" style="margin:12px 0 0">Arquivo: ${escapar(a.arquivo_nome)}</p>` : ''}
       ${a.motivo || a.observacao
         ? `<div class="observacao"><strong>${status === 'reprovado' ? 'Motivo da reprovação' : 'Professor'}:</strong> ${escapar(a.motivo || a.observacao)}</div>`
         : ''}
@@ -1293,6 +1287,35 @@ const SELO_ENTREGA = {
   aceita: '<span class="selo ok">aceita</span>',
 };
 
+// Ver o documento sem sair da tela: PDF e imagem abrem aqui mesmo, o resto
+// (Word, planilha) só faz sentido baixado. Baixar fica sempre à mão.
+function visorArquivo(id, nome, tipo, rotulo = 'Documento') {
+  if (!id) return '';
+  const ehPdf = String(tipo || '').includes('pdf') || /\.pdf$/i.test(nome || '');
+  const ehImagem = String(tipo || '').startsWith('image/') || /\.(jpe?g|png|webp|heic|heif)$/i.test(nome || '');
+  const dentro = ehPdf
+    ? `<iframe class="visor" src="/api/arquivos/${id}" title="${escapar(nome || rotulo)}"></iframe>`
+    : ehImagem
+      ? `<img class="visor" src="/api/arquivos/${id}" alt="${escapar(nome || rotulo)}">`
+      : `<p class="sub" style="margin:10px 0 0">Este formato não abre aqui dentro — use “Baixar”.</p>`;
+
+  return `<div class="anexo">
+    <div class="cabecalho">
+      <span class="titulo">${escapar(rotulo)}</span>
+      <span class="sub">${escapar(nome || '')}</span>
+    </div>
+    <div class="acoes" style="margin-top:8px">
+      <a class="botao-link" href="/api/arquivos/${id}?baixar" download>Baixar</a>
+      <a class="botao-link" href="/api/arquivos/${id}" target="_blank" rel="noopener">Abrir em outra aba</a>
+    </div>
+    ${ehPdf || ehImagem
+      ? `<details class="dobra fina discreta" style="margin-top:6px">
+           <summary>Ver aqui mesmo</summary>${dentro}
+         </details>`
+      : dentro}
+  </div>`;
+}
+
 function blocoMaterial(m, comRemover) {
   const link = m.tipo === 'link'
     ? `<a href="${escapar(m.url)}" target="_blank" rel="noopener">${escapar(m.titulo)}</a>`
@@ -1644,9 +1667,7 @@ $('#mural-professor').addEventListener('click', async (e) => {
                 ${SELO_ENTREGA[en.status]}
               </div>
               ${en.texto ? `<pre style="margin-top:10px">${escapar(en.texto)}</pre>` : ''}
-              ${en.arquivo_id ? `<div class="sub" style="margin-top:8px">
-                  <a href="/api/arquivos/${en.arquivo_id}" target="_blank" rel="noopener">${escapar(en.arquivo_nome)}</a>
-                </div>` : ''}
+              ${visorArquivo(en.arquivo_id, en.arquivo_nome, en.arquivo_tipo, 'Entrega do aluno')}
               ${en.status === 'aceita'
                 ? `<div class="sub">${notaDaEntrega(en, tarefa) || `${horas(en.horas || 0)} lançadas como horas validadas`}</div>`
                 : ''}

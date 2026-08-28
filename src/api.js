@@ -235,7 +235,8 @@ async function professorDaChave(bd, autorizacao) {
 
 const COLUNAS_ATIVIDADE = `a.id, a.usuario_id, a.titulo, a.categoria, a.local, a.responsavel,
   a.data_atividade, a.data_fim, a.horas, a.comprovante, a.texto, a.arquivo_nome, a.arquivo_id,
-  a.analise_arquivo_id, an.nome AS analise_arquivo_nome,
+  a.analise_arquivo_id, an.nome AS analise_arquivo_nome, an.tipo AS analise_arquivo_tipo,
+  cp.tipo AS arquivo_tipo,
   a.status, a.horas_aprovadas, a.motivo, a.analisado_em,
   a.validado, a.validado_em, a.observacao, a.criado_em, a.atualizado_em,
   u.nome AS aluno_nome, u.matricula AS aluno_matricula, t.nome AS turma_nome,
@@ -244,6 +245,7 @@ const COLUNAS_ATIVIDADE = `a.id, a.usuario_id, a.titulo, a.categoria, a.local, a
 const juncoes = (interna) => `FROM atividades a
   JOIN usuarios u ON u.id = a.usuario_id
   LEFT JOIN arquivos an ON an.id = a.analise_arquivo_id
+  LEFT JOIN arquivos cp ON cp.id = a.arquivo_id
   ${interna ? 'JOIN' : 'LEFT JOIN'} turmas t ON t.id = u.turma_id
   LEFT JOIN usuarios v ON v.id = a.validado_por`;
 
@@ -1750,11 +1752,15 @@ export function criarRotas(bd, opcoes = {}) {
       if (!arquivo) throw erro(404, 'Arquivo não encontrado.');
       const bytes = await opcoes.arquivos?.ler(arquivo.chave);
       if (!bytes) throw erro(404, 'Conteúdo do arquivo não encontrado.');
+      // Sem ?baixar, o arquivo é servido para ser lido na própria tela; com
+      // ele, o navegador salva em vez de abrir.
+      const comoAnexo = ctx.url.searchParams.get('baixar') !== null;
       return {
         binario: bytes,
         cabecalhos: {
           'Content-Type': arquivo.tipo,
-          'Content-Disposition': `inline; filename="${arquivo.nome.replace(/"/g, '')}"`,
+          'Content-Disposition':
+            `${comoAnexo ? 'attachment' : 'inline'}; filename="${arquivo.nome.replace(/"/g, '')}"`,
           'Cache-Control': 'private, max-age=600',
         },
       };

@@ -36,6 +36,7 @@ function cliente(base) {
     return {
       status: resposta.status,
       tipo,
+      cabecalhos: Object.fromEntries(resposta.headers),
       dados: binario ? Buffer.from(await resposta.arrayBuffer()) : await resposta.text(),
     };
   };
@@ -1564,6 +1565,13 @@ test('o aluno anexa o comprovante em PDF na atividade, e só quem valida abre', 
     // O aluno baixa o próprio comprovante; o professor da turma também.
     assert.equal((await ana(`/api/arquivos/${atividade.arquivo_id}`)).status, 200);
     assert.equal((await admin(`/api/arquivos/${atividade.arquivo_id}`)).status, 200);
+
+    // Sem ?baixar o arquivo abre na tela; com ele, o navegador salva.
+    const paraVer = await admin(`/api/arquivos/${atividade.arquivo_id}`);
+    assert.equal(paraVer.tipo, 'application/pdf');
+    assert.match(paraVer.cabecalhos['content-disposition'], /^inline/);
+    const paraBaixar = await admin(`/api/arquivos/${atividade.arquivo_id}?baixar`);
+    assert.match(paraBaixar.cabecalhos['content-disposition'], /^attachment; filename="certificado.pdf"/);
     // Quem não acompanha esse aluno, não.
     assert.equal((await outra(`/api/arquivos/${atividade.arquivo_id}`)).status, 404);
     assert.equal((await deFora(`/api/arquivos/${atividade.arquivo_id}`)).status, 404);

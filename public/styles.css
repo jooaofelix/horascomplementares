@@ -294,6 +294,33 @@ button.mini { min-height: 42px; padding: 8px 16px; font-size: 15px; }
   .dobra > summary .mais { transition: transform .2s ease; }
 }
 
+/* Documento anexado: nome, o que fazer com ele, e o próprio arquivo aberto
+   aqui dentro quando o formato deixa. */
+.anexo {
+  border: 1px solid var(--borda); border-radius: 12px; padding: 12px;
+  margin-top: 12px; background: var(--superficie);
+}
+.anexo .cabecalho { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.anexo .titulo { font-weight: 650; font-size: 15px; }
+.anexo .acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.botao-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 8px 14px; border: 1px solid var(--borda); border-radius: 10px;
+  font-size: 14px; font-weight: 600; color: var(--acento); text-decoration: none;
+  background: var(--superficie); min-height: 36px;
+}
+.botao-link:hover { border-color: var(--acento); }
+
+iframe.visor {
+  width: 100%; height: 60vh; min-height: 320px; margin-top: 10px;
+  border: 1px solid var(--borda); border-radius: 10px; background: #fff;
+}
+img.visor {
+  display: block; width: 100%; height: auto; margin-top: 10px;
+  border: 1px solid var(--borda); border-radius: 10px;
+}
+
 /* A matéria dentro da sala: um cartão mais leve, com o filete da área. */
 .materia {
   border: 1px solid var(--borda); border-left: 3px solid var(--turmas);

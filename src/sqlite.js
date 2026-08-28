@@ -49,6 +49,7 @@ const COLUNAS_NOVAS = [
   ['tarefas', 'nota_maxima', 'REAL'],
   ['entregas', 'nota', 'REAL'],
   ['atividades', 'arquivo_id', 'INTEGER REFERENCES arquivos(id) ON DELETE SET NULL'],
+  ['atividades', 'analise_arquivo_id', 'INTEGER REFERENCES arquivos(id) ON DELETE SET NULL'],
 ];
 
 function garantirColunas(db) {

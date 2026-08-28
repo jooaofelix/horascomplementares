@@ -266,15 +266,23 @@ O professor vê a fila (`3 a avaliar`), lê a entrega e decide:
   categoria da tarefa e o texto entregue. Ninguém redigita nada. Reavaliar com outra carga corrige a
   mesma atividade em vez de criar outra.
 
-## Comprovante da hora complementar
+## Os dois arquivos da hora complementar
 
-Ao lançar uma hora, o aluno anexa o comprovante: o certificado em PDF, a declaração assinada, a foto
-do papel. O arquivo fica guardado no sistema com hash SHA-256, e o professor abre direto do cartão da
-atividade na hora de validar — não precisa pedir por e-mail nem confiar só no número do certificado.
+Uma hora lançada pelo aluno costuma ter dois papéis, e o formulário separa os dois:
 
-Quem abre: o aluno que lançou e a equipe que acompanha a turma dele. Professor de outra turma recebe
-404, e há teste para isso. Editar a atividade sem escolher outro arquivo mantém o que já estava
-anexado.
+| Campo | O que é | Onde fica |
+| --- | --- | --- |
+| **Comprovante em arquivo** | o certificado, a declaração assinada, a foto do papel | logo abaixo do nº do certificado |
+| **Sua análise / registro** | o relatório do próprio aluno, em PDF, Word ou digitado ali mesmo | na área com borda tracejada |
+
+Na área da análise, arquivo `.txt` ou `.md` continua entrando **como texto** dentro do campo — dá para
+revisar e editar antes de salvar. Qualquer outro formato (o caso comum: o relatório em PDF) fica
+anexado à atividade, e o nome do arquivo já preenche o título quando ele está vazio.
+
+Os dois ficam guardados com hash SHA-256, e o professor abre os dois direto do cartão da atividade na
+hora de validar — não precisa pedir por e-mail. Quem abre: o aluno que lançou e a equipe que acompanha
+a turma dele; professor de outra turma recebe 404, e há teste para isso. Editar a atividade sem
+escolher outro arquivo mantém o que já estava anexado.
 
 ### Formatos aceitos
 

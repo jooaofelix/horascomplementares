@@ -206,10 +206,13 @@
         <div class="campo">
           <label for="ativ-texto">Sua análise / registro</label>
           <div class="zona-arquivo" id="zona-arquivo">
-            Colar de um arquivo <strong>.txt</strong> ou <strong>.md</strong> aqui dentro
+            Toque para anexar o seu relatório — <strong>PDF</strong>, Word, imagem.
+            <span class="sub">Arquivo .txt ou .md entra direto no campo abaixo.</span>
           </div>
-          <input type="file" id="entrada-arquivo" class="oculto" accept=".txt,.md,.markdown,text/plain">
-          <textarea id="ativ-texto" placeholder="Escreva aqui a sua análise, ou anexe um arquivo de texto."></textarea>
+          <input type="file" id="entrada-arquivo" class="oculto"
+                 accept=".pdf,.pptx,.ppt,.odp,.docx,.doc,.odt,.xlsx,.xls,.jpg,.jpeg,.png,.webp,.heic,.txt,.md,.markdown,.csv">
+          <div class="ajuda oculto" id="analise-anexada"></div>
+          <textarea id="ativ-texto" placeholder="Escreva aqui a sua análise, ou anexe o arquivo acima."></textarea>
           <div class="ajuda" id="contador-texto">0 caracteres</div>
         </div>
 

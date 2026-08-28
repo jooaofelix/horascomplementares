@@ -287,6 +287,11 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
       <div class="ficha">${itens
         .map(([r, v]) => `<div><div class="rotulo">${r}</div>${escapar(v)}</div>`)
         .join('')}</div>
+      ${a.analise_arquivo_id
+        ? `<p class="sub" style="margin:12px 0 0">Relatório:
+             <a href="/api/arquivos/${a.analise_arquivo_id}" target="_blank" rel="noopener">${
+               escapar(a.analise_arquivo_nome || 'abrir arquivo')}</a></p>`
+        : ''}
       ${a.arquivo_id
         ? `<p class="sub" style="margin:12px 0 0">Comprovante:
              <a href="/api/arquivos/${a.arquivo_id}" target="_blank" rel="noopener">${
@@ -349,7 +354,7 @@ function desenharListaAluno() {
 
 // ---- formulário ----
 
-const formulario = { arquivoNome: null };
+const formulario = { arquivoNome: null, analiseArquivo: null };
 
 function abrirFormulario(abrir = true) {
   $('#cartao-formulario').classList.toggle('oculto', !abrir);
@@ -364,7 +369,9 @@ function limparFormulario() {
   $('#titulo-formulario').textContent = 'Nova atividade';
   $('#btn-salvar').textContent = 'Salvar atividade';
   formulario.arquivoNome = null;
+  formulario.analiseArquivo = null;
   $('#anexo-atual').classList.add('oculto');
+  $('#analise-anexada').classList.add('oculto');
   atualizarContador();
 }
 
@@ -394,8 +401,9 @@ $('#form-atividade').onsubmit = async (e) => {
     arquivo_nome: formulario.arquivoNome,
   };
   try {
-    // O comprovante em arquivo sobe junto com o resto do formulário.
+    // Os dois anexos sobem junto com o resto do formulário.
     corpo.arquivo = await lerParaEnvio($('#ativ-arquivo'));
+    corpo.arquivo_analise = await arquivoParaEnvio(formulario.analiseArquivo);
     await api(id ? `/api/atividades/${id}` : '/api/atividades', { metodo: id ? 'PUT' : 'POST', corpo });
     $('#ativ-arquivo').value = '';
     limparFormulario();
@@ -427,6 +435,13 @@ $('#lista-aluno').addEventListener('click', async (e) => {
     $('#ativ-texto').value = a.texto;
     formulario.arquivoNome = a.arquivo_nome;
     $('#ativ-arquivo').value = '';
+    formulario.analiseArquivo = null;
+    $('#analise-anexada').classList.toggle('oculto', !a.analise_arquivo_id);
+    if (a.analise_arquivo_id) {
+      $('#analise-anexada').innerHTML =
+        `Relatório já anexado: <a href="/api/arquivos/${a.analise_arquivo_id}" target="_blank" rel="noopener">${
+          escapar(a.analise_arquivo_nome || 'abrir')}</a> — anexe outro só se quiser trocar.`;
+    }
     // Já tem comprovante anexado: só troca se o aluno escolher outro arquivo.
     $('#anexo-atual').classList.toggle('oculto', !a.arquivo_id);
     if (a.arquivo_id) {
@@ -471,7 +486,11 @@ $('#btn-salvar-meus').onclick = async () => {
   }
 };
 
-// ---- arquivo de texto ----
+// ---- o arquivo da análise ----
+
+// .txt e .md entram como texto no próprio campo; qualquer outro formato (o
+// caso comum: o relatório em PDF) vira anexo da atividade.
+const EH_TEXTO = /\.(txt|md|markdown)$/i;
 
 const zona = $('#zona-arquivo');
 const entradaArquivo = $('#entrada-arquivo');
@@ -490,15 +509,25 @@ entradaArquivo.onchange = () => {
 };
 
 async function lerArquivo(arquivo) {
-  if (arquivo.size > 2 * 1024 * 1024) return avisar('Arquivo grande demais (limite de 2 MB).');
-  const conteudo = await arquivo.text();
-  const atual = $('#ativ-texto').value.trim();
-  $('#ativ-texto').value = atual ? `${atual}\n\n${conteudo}` : conteudo;
-  formulario.arquivoNome = arquivo.name;
-  if (!$('#ativ-titulo').value.trim()) {
-    $('#ativ-titulo').value = arquivo.name.replace(/\.(txt|md|markdown)$/i, '');
+  const semExtensao = arquivo.name.replace(/\.[^.]+$/, '');
+  if (!$('#ativ-titulo').value.trim()) $('#ativ-titulo').value = semExtensao;
+
+  if (EH_TEXTO.test(arquivo.name) || arquivo.type.startsWith('text/')) {
+    if (arquivo.size > 2 * 1024 * 1024) return avisar('Arquivo de texto grande demais (limite de 2 MB).');
+    const conteudo = await arquivo.text();
+    const atual = $('#ativ-texto').value.trim();
+    $('#ativ-texto').value = atual ? `${atual}\n\n${conteudo}` : conteudo;
+    formulario.arquivoNome = arquivo.name;
+    return atualizarContador();
   }
-  atualizarContador();
+
+  if (estado.limiteArquivo && arquivo.size > estado.limiteArquivo) {
+    const limite = (estado.limiteArquivo / (1024 * 1024)).toFixed(1).replace('.', ',');
+    return avisar(`O arquivo passa do limite de ${limite} MB.`);
+  }
+  formulario.analiseArquivo = arquivo;
+  $('#analise-anexada').classList.remove('oculto');
+  $('#analise-anexada').textContent = `Relatório anexado: ${arquivo.name}`;
 }
 
 // ---------------------------------------------------------------- professor
@@ -1222,8 +1251,9 @@ $('#btn-salvar-perfil').onclick = async () => {
 // ---------------------------------------------------------------- aulas e tarefas
 
 // Lê o arquivo escolhido e devolve no formato que a API espera.
-function lerParaEnvio(input) {
-  const arquivo = input?.files?.[0];
+const lerParaEnvio = (input) => arquivoParaEnvio(input?.files?.[0]);
+
+function arquivoParaEnvio(arquivo) {
   if (!arquivo) return Promise.resolve(null);
   if (estado.limiteArquivo && arquivo.size > estado.limiteArquivo) {
     const limite = (estado.limiteArquivo / (1024 * 1024)).toFixed(1).replace('.', ',');

@@ -1573,6 +1573,18 @@ test('o aluno anexa o comprovante em PDF na atividade, e só quem valida abre', 
       metodo: 'PUT', corpo: { ...atividadeBase, horas: 3 },
     });
     assert.equal(editada.dados.atividade.arquivo_id, atividade.arquivo_id);
+
+    // A análise também pode vir em arquivo, separada do comprovante.
+    const comRelatorio = await ana(`/api/atividades/${atividade.id}`, {
+      metodo: 'PUT',
+      corpo: { ...atividadeBase, arquivo_analise: arquivoExemplo('relatorio.pdf') },
+    });
+    const dois = comRelatorio.dados.atividade;
+    assert.equal(dois.analise_arquivo_nome, 'relatorio.pdf');
+    assert.notEqual(dois.analise_arquivo_id, dois.arquivo_id, 'são dois arquivos diferentes');
+    assert.equal((await ana(`/api/arquivos/${dois.analise_arquivo_id}`)).status, 200);
+    assert.equal((await admin(`/api/arquivos/${dois.analise_arquivo_id}`)).status, 200);
+    assert.equal((await outra(`/api/arquivos/${dois.analise_arquivo_id}`)).status, 404);
   });
 });
 

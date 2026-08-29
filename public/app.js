@@ -1043,7 +1043,7 @@ $('#lista-turmas').addEventListener('click', async (e) => {
   } = e.target.dataset;
   try {
     if (copiar !== undefined) {
-      const convite = `Entre na nossa sala: ${location.origin} — código da turma: ${copiar}`;
+      const convite = `Entre na nossa sala no PostAí: ${location.origin} — código da turma: ${copiar}`;
       await navigator.clipboard.writeText(convite);
       avisar('Convite copiado — cole no grupo da turma.', 'ok');
     }
@@ -2016,7 +2016,7 @@ async function iniciar() {
   const u = estado.usuario;
   if (EQUIPE.includes(u.papel)) {
     const cargo = { admin: 'administração', coordenador: 'coordenação', professor: 'professor(a)' }[u.papel];
-    $('#titulo-app').textContent = u.instituicao || 'Sala de Aula';
+    $('#titulo-app').textContent = u.instituicao || 'PostAí';
     $('#identificacao').textContent = [u.nome, cargo].filter(Boolean).join(' · ');
     $('#identificacao-config').textContent = $('#identificacao').textContent;
     $('#painel-professor').classList.remove('oculto');
@@ -2047,7 +2047,7 @@ async function iniciar() {
     if (u.pode_convidar) await carregarConvites();
   } else {
     const materias = dados.materias || [];
-    $('#titulo-app').textContent = materias.find((m) => m.instituicao)?.instituicao || 'Sala de Aula';
+    $('#titulo-app').textContent = materias.find((m) => m.instituicao)?.instituicao || 'PostAí';
     $('#identificacao').textContent = [u.nome, u.turma_nome].filter(Boolean).join(' · ');
     $('#identificacao-config').textContent = $('#identificacao').textContent;
     // O aluno tem vários professores: quem gera hora é quem interessa aqui.

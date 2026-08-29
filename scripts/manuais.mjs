@@ -22,7 +22,7 @@ const CORES = {
 
 const professor = {
   arquivo: 'manual-professor.pdf',
-  titulo: 'Sala de Aula',
+  titulo: 'PostAí',
   subtitulo: 'Guia rápido do professor',
   cor: CORES.aulas,
   abertura:
@@ -125,7 +125,7 @@ const professor = {
 
 const aluno = {
   arquivo: 'manual-aluno.pdf',
-  titulo: 'Sala de Aula',
+  titulo: 'PostAí',
   subtitulo: 'Guia rápido do aluno',
   cor: CORES.alunos,
   abertura:
@@ -324,7 +324,7 @@ doc = BaseDocTemplate(os.path.join(SAIDA, dados['arquivo']), pagesize=A4,
                       leftMargin=MARGEM, rightMargin=MARGEM,
                       topMargin=MARGEM, bottomMargin=24 * mm,
                       title=dados['titulo'] + ' — ' + dados['subtitulo'],
-                      author='Sala de Aula')
+                      author='PostAí')
 
 quadro_capa = Frame(MARGEM, 24 * mm, UTIL, ALTURA - 62 * mm - 34 * mm, id='capa')
 quadro = Frame(MARGEM, 24 * mm, UTIL, ALTURA - MARGEM - 34 * mm, id='normal')

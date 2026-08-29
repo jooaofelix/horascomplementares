@@ -567,7 +567,7 @@ test('a página inicial é servida e caminhos desconhecidos devolvem 404', async
     const anonimo = cliente(base);
     const pagina = await anonimo('/');
     assert.equal(pagina.status, 200);
-    assert.match(pagina.dados, /Sala de Aula/);
+    assert.match(pagina.dados, /PostAí/);
     assert.equal((await anonimo('/nao-existe.html')).status, 404);
   });
 });

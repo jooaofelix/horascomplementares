@@ -1,4 +1,6 @@
-# Sala de Aula
+# PostAí
+
+*Poste aí: a aula, o material, a tarefa, o comprovante.*
 
 Sistema web da faculdade para o dia a dia da turma: o professor publica **aulas** com slides e
 materiais, cria **tarefas** com prazo, e os alunos entregam pelo celular. O controle de **horas
@@ -244,7 +246,7 @@ API HTTP (o padrão é o [Resend](https://resend.com), plano gratuito suficiente
 
 ```bash
 # no seu computador (.env, ou na frente do comando)
-EMAIL_CHAVE=re_xxx EMAIL_DE="Sala de Aula <avisos@seu-dominio.br>" npm start
+EMAIL_CHAVE=re_xxx EMAIL_DE="PostAí <avisos@seu-dominio.br>" npm start
 
 # no Cloudflare
 npx wrangler secret put EMAIL_CHAVE

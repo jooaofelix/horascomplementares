@@ -224,8 +224,13 @@
     </div>
 
     <div class="cartao" id="cartao-atividades-aluno" data-area="horas">
-      <h2>Suas atividades</h2>
-      <p class="explicacao">Editar uma atividade já validada faz ela voltar para a fila do professor.</p>
+      <span class="etiqueta">Suas atividades</span>
+      <h2>Caixa de entrada</h2>
+      <p class="explicacao">
+        Cada linha é uma conversa: o que você mandou e o que o professor respondeu. A bolinha marca
+        o que ainda não foi lido. Toque para abrir.
+      </p>
+      <div class="painel-resumo oculto" id="resumo-caixa"></div>
       <div class="linha" style="margin-bottom:16px">
         <input id="busca-aluno" placeholder="Buscar por nome, local ou trecho">
         <select id="filtro-status-aluno">

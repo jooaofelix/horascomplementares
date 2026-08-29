@@ -296,6 +296,52 @@ button.mini { min-height: 42px; padding: 8px 16px; font-size: 15px; }
   .dobra > summary .mais { transition: transform .2s ease; }
 }
 
+/* ================= CAIXA DE ENTRADA DO ALUNO ================= */
+
+/* Cada atividade é uma linha de caixa de e-mail: quem falou por último, o
+   assunto, um pedaço da resposta e o estado. */
+.mensagem { border-bottom: 1px solid var(--borda); }
+.mensagem:first-child { border-top: 1px solid var(--borda); }
+
+.linha-mensagem {
+  display: grid; grid-template-columns: 14px 1fr auto; gap: 4px 12px; align-items: start;
+  width: 100%; text-align: left; padding: 16px 6px; min-height: 64px;
+  background: none; border: none; border-radius: 0; color: var(--texto); font-weight: 400;
+}
+.linha-mensagem:hover { background: var(--fundo); }
+.linha-mensagem .ponto {
+  width: 10px; height: 10px; border-radius: 50%; background: transparent; margin-top: 7px;
+}
+.mensagem.nova .linha-mensagem .ponto { background: var(--acento); }
+.mensagem.atencao .linha-mensagem .ponto { background: var(--alerta-barra); }
+
+.corpo-linha { min-width: 0; display: grid; gap: 2px; }
+.linha-mensagem .de { font-size: 14px; color: var(--suave); }
+.linha-mensagem .assunto { font-size: 16px; font-weight: 600; }
+.linha-mensagem .previa {
+  font-size: 14px; color: var(--suave);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mensagem.nova .linha-mensagem .de,
+.mensagem.nova .linha-mensagem .assunto { font-weight: 700; color: var(--texto); }
+.mensagem.nova .linha-mensagem .previa { color: var(--texto); }
+
+.linha-mensagem .lado {
+  display: grid; justify-items: end; gap: 6px; text-align: right; white-space: nowrap;
+}
+.linha-mensagem .quando { font-size: 13px; color: var(--suave); }
+.linha-mensagem .horas { font-size: 14px; font-weight: 700; }
+
+/* A conversa aberta: mensagens de quem mandou e de quem respondeu. */
+.conversa { padding: 4px 6px 18px; }
+.fio { display: grid; gap: 10px; margin-bottom: 16px; }
+.balao {
+  border-radius: 14px; padding: 12px 14px; font-size: 15px; line-height: 1.55; max-width: 92%;
+}
+.balao .quem { font-size: 12px; color: var(--suave); margin-bottom: 4px; }
+.balao.meu { background: var(--acento-fundo); justify-self: end; border-bottom-right-radius: 4px; }
+.balao.dele { background: var(--fundo); border: 1px solid var(--borda); border-bottom-left-radius: 4px; }
+
 /* ================= MENU DO PROFESSOR ================= */
 
 /* Botões grandes, cada um dizendo com todas as letras o que faz. É a tela que

@@ -251,7 +251,7 @@ function desenharCategorias() {
   }).join('');
 }
 
-function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao = false } = {}) {
+function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao = false, semObservacao = false } = {}) {
   const status = a.status || (a.validado ? 'aprovado' : 'pendente');
   const [classe, rotulo] = SELO_STATUS[status] ?? SELO_STATUS.pendente;
   const selo = `<span class="selo ${classe}">${rotulo}${
@@ -292,7 +292,7 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
       ${visorArquivo(a.arquivo_id, a.arquivo_nome, a.arquivo_tipo, 'Comprovante')}
       ${!a.arquivo_id && a.arquivo_nome
         ? `<p class="sub" style="margin:12px 0 0">Arquivo: ${escapar(a.arquivo_nome)}</p>` : ''}
-      ${a.motivo || a.observacao
+      ${(a.motivo || a.observacao) && !semObservacao
         ? `<div class="observacao"><strong>${
              status === 'reprovado' ? 'Motivo da reprovação'
              : status === 'correcao' ? 'O professor pediu'
@@ -369,11 +369,117 @@ function filtrar(lista, termo, status) {
   });
 }
 
+// A atividade do aluno é uma conversa com o professor: ele manda, o professor
+// responde, ele reenvia. A caixa de entrada mostra isso na ordem em que
+// aconteceu — o que precisa dele em cima, em negrito, com a bolinha.
+
+// A hora que veio de uma tarefa aceita não passa pela análise: quem respondeu
+// foi quem validou.
+const respondidaEm = (a) => a.analisado_em || a.validado_em;
+const quemRespondeu = (a) => a.analisado_por_nome || a.validado_por_nome || 'Professor(a)';
+
+// Respondeu depois da última vez que o aluno abriu? Então é novidade.
+const naoLida = (a) => {
+  const quando = respondidaEm(a);
+  return Boolean(quando) && (!a.lida_em || a.lida_em < quando);
+};
+
+const PRECISA_DE_MIM = ['correcao', 'reprovado'];
+
+function ultimaMensagem(a) {
+  const status = a.status || 'pendente';
+  if (!respondidaEm(a)) {
+    return { de: 'Você', texto: 'Enviado, esperando o professor ver.', quando: a.atualizado_em || a.criado_em };
+  }
+  return {
+    de: quemRespondeu(a),
+    texto: a.motivo || a.observacao
+      || (status === 'aprovado' ? 'Atividade aprovada.' : 'Respondida.'),
+    quando: respondidaEm(a),
+  };
+}
+
+function linhaCaixa(a) {
+  const status = a.status || 'pendente';
+  const [classe, rotulo] = SELO_STATUS[status] ?? SELO_STATUS.pendente;
+  const ultima = ultimaMensagem(a);
+  const nova = naoLida(a);
+
+  return `<article class="mensagem ${nova ? 'nova' : ''} ${PRECISA_DE_MIM.includes(status) ? 'atencao' : ''}">
+    <button class="linha-mensagem" data-abrir="${a.id}">
+      <span class="ponto" aria-hidden="true"></span>
+      <span class="corpo-linha">
+        <span class="de">${escapar(ultima.de)}${nova ? ' · novo' : ''}</span>
+        <span class="assunto">${escapar(a.titulo)}</span>
+        <span class="previa">${escapar(ultima.texto)}</span>
+      </span>
+      <span class="lado">
+        <span class="quando">${ultima.quando ? dataBr(ultima.quando) : ''}</span>
+        <span class="selo ${classe}">${rotulo}</span>
+        <span class="horas">${horas(a.horas)}</span>
+      </span>
+    </button>
+    <div class="conversa oculto" data-conversa="${a.id}"></div>
+  </article>`;
+}
+
 function desenharListaAluno() {
   const lista = filtrar(estado.atividades, $('#busca-aluno').value, $('#filtro-status-aluno').value);
-  $('#lista-aluno').innerHTML = lista.length
-    ? lista.map((a) => cartaoAtividade(a, { comEdicao: true })).join('')
+  // Primeiro o que espera uma ação do aluno, depois o que espera o professor.
+  const ordem = (a) => (PRECISA_DE_MIM.includes(a.status || 'pendente') ? 0 : naoLida(a) ? 1 : 2);
+  const ordenada = [...lista].sort((x, y) => ordem(x) - ordem(y));
+
+  $('#lista-aluno').innerHTML = ordenada.length
+    ? ordenada.map(linhaCaixa).join('')
     : '<p class="vazio">Nenhuma atividade ainda. Toque em “Lançar nova atividade”.</p>';
+
+  const conta = (quais) => estado.atividades.filter((a) => quais.includes(a.status || 'pendente')).length;
+  const pecas = [
+    ['var(--erro)', conta(PRECISA_DE_MIM), 'esperando você'],
+    ['var(--horas)', conta(['pendente', 'em_analise']), 'com o professor'],
+    ['var(--aulas)', conta(['aprovado']), 'aprovadas'],
+  ].filter(([, n]) => n > 0);
+
+  $('#resumo-caixa').innerHTML = pecas
+    .map(([cor, n, r]) => `<div class="peca" style="--cor-peca:${cor}"><div class="n">${n}</div><div class="r">${r}</div></div>`)
+    .join('');
+  $('#resumo-caixa').classList.toggle('oculto', !pecas.length);
+}
+
+// Abrir a conversa: a trilha da atividade vira mensagens, e o que dá para fazer
+// agora fica no fim dela.
+async function abrirConversa(id) {
+  const caixa = $(`[data-conversa="${id}"]`);
+  const atividade = estado.atividades.find((a) => String(a.id) === String(id));
+  if (!caixa || !atividade) return;
+
+  if (!caixa.classList.contains('oculto')) return caixa.classList.add('oculto');
+  caixa.classList.remove('oculto');
+  caixa.innerHTML = '<p class="sub">carregando…</p>';
+
+  try {
+    const { historico } = await api(`/api/atividades/${id}/historico`);
+    const balao = (h) => {
+      const meu = h.papel === 'aluno';
+      return `<div class="balao ${meu ? 'meu' : 'dele'}">
+        <div class="quem">${escapar(meu ? 'Você' : h.usuario_nome || 'Professor(a)')} · ${dataBr(h.criado_em)}</div>
+        <div>${escapar(h.descricao)}</div>
+      </div>`;
+    };
+    caixa.innerHTML = `
+      <div class="fio">${historico.map(balao).join('')}</div>
+      ${cartaoAtividade(atividade, { comEdicao: true, semObservacao: true })}`;
+
+    if (naoLida(atividade)) {
+      await api(`/api/atividades/${id}/lida`, { metodo: 'POST' });
+      atividade.lida_em = new Date().toISOString();
+      $(`[data-abrir="${id}"]`)?.closest('.mensagem')?.classList.remove('nova');
+      $(`[data-abrir="${id}"] .de`).textContent = ultimaMensagem(atividade).de;
+    }
+  } catch (err) {
+    falhar(err);
+    caixa.classList.add('oculto');
+  }
 }
 
 // ---- formulário ----
@@ -440,6 +546,9 @@ $('#form-atividade').onsubmit = async (e) => {
 };
 
 $('#lista-aluno').addEventListener('click', async (e) => {
+  const abrir = e.target.closest('[data-abrir]')?.dataset.abrir;
+  if (abrir) return abrirConversa(abrir);
+
   const idEditar = e.target.dataset.editar;
   const idExcluir = e.target.dataset.excluir;
   const idReenviar = e.target.dataset.reenviar;

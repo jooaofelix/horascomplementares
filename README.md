@@ -345,6 +345,17 @@ O professor vê a fila (`3 a avaliar`), lê a entrega e decide:
   categoria da tarefa e o texto entregue. Ninguém redigita nada. Reavaliar com outra carga corrige a
   mesma atividade em vez de criar outra.
 
+## Caixa de entrada do aluno
+
+A lista de atividades do aluno é uma caixa de entrada: cada linha é uma conversa sobre um
+lançamento — quem falou por último, o assunto, um pedaço da resposta, a data e o estado. O que
+precisa dele fica em cima; o que o professor respondeu depois da última abertura vem em negrito,
+com uma bolinha (a leitura fica guardada em `atividades.lida_em`, não no navegador).
+
+Tocar numa linha abre a conversa: a trilha de auditoria vira balões — o que o aluno lançou, o que o
+professor pediu, o reenvio, a aprovação — e abaixo dela ficam as ações possíveis naquele momento
+(reenviar, editar, excluir) e os anexos.
+
 ## Os dois arquivos da hora complementar
 
 Uma hora lançada pelo aluno costuma ter dois papéis, e o formulário separa os dois:

@@ -53,6 +53,7 @@ const COLUNAS_NOVAS = [
   ['usuarios', 'avisar_email', 'INTEGER NOT NULL DEFAULT 1'],
   ['entregas', 'horas_revisao', 'REAL'],
   ['atividades', 'horas_revisao', 'REAL'],
+  ['atividades', 'lida_em', 'TEXT'],
 ];
 
 function garantirColunas(db) {

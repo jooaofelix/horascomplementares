@@ -2046,3 +2046,32 @@ test('depois de devolvida, o aluno reenvia com o tempo da correção — e não 
     })).status, 403);
   });
 });
+
+test('a caixa de entrada do aluno sabe o que ele já leu', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, ana } = await turmaComAluno(base);
+    const id = (await ana('/api/atividades', { metodo: 'POST', corpo: atividadeBase })).dados.atividade.id;
+
+    const antes = (await ana('/api/atividades')).dados.atividades[0];
+    assert.equal(antes.analisado_em, null, 'ninguém respondeu ainda');
+    assert.equal(antes.lida_em, null);
+
+    await admin(`/api/atividades/${id}/analise`, {
+      metodo: 'POST', corpo: { status: 'correcao', motivo: 'Falta o certificado.' },
+    });
+
+    const respondida = (await ana('/api/atividades')).dados.atividades[0];
+    assert.ok(respondida.analisado_em, 'a resposta tem data');
+    assert.equal(respondida.analisado_por_nome, 'Profa. Marina', 'e tem o nome de quem respondeu');
+    assert.equal(respondida.lida_em, null, 'ainda não lida');
+
+    assert.equal((await ana(`/api/atividades/${id}/lida`, { metodo: 'POST' })).status, 200);
+    const lida = (await ana('/api/atividades')).dados.atividades[0];
+    assert.ok(lida.lida_em >= lida.analisado_em, 'depois de aberta, a leitura é mais recente');
+
+    // A caixa é de quem lançou: um colega não marca nada como lido.
+    const bruno = await criarAluno(base, 'Bruno', 'bruno@ex.br', (await ana('/api/eu')).dados.usuario.turma_id
+      ? (await admin('/api/turmas')).dados.turmas[0].codigo : '');
+    assert.equal((await bruno(`/api/atividades/${id}/lida`, { metodo: 'POST' })).status, 403);
+  });
+});

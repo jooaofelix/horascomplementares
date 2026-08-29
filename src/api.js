@@ -238,7 +238,8 @@ const COLUNAS_ATIVIDADE = `a.id, a.usuario_id, a.titulo, a.categoria, a.local, a
   a.arquivo_nome, a.arquivo_id,
   a.analise_arquivo_id, an.nome AS analise_arquivo_nome, an.tipo AS analise_arquivo_tipo,
   cp.tipo AS arquivo_tipo,
-  a.status, a.horas_aprovadas, a.motivo, a.analisado_em,
+  a.status, a.horas_aprovadas, a.motivo, a.analisado_em, a.lida_em,
+  an2.nome AS analisado_por_nome,
   a.validado, a.validado_em, a.observacao, a.criado_em, a.atualizado_em,
   u.nome AS aluno_nome, u.matricula AS aluno_matricula, t.nome AS turma_nome,
   v.nome AS validado_por_nome`;
@@ -247,6 +248,7 @@ const juncoes = (interna) => `FROM atividades a
   JOIN usuarios u ON u.id = a.usuario_id
   LEFT JOIN arquivos an ON an.id = a.analise_arquivo_id
   LEFT JOIN arquivos cp ON cp.id = a.arquivo_id
+  LEFT JOIN usuarios an2 ON an2.id = a.analisado_por
   ${interna ? 'JOIN' : 'LEFT JOIN'} turmas t ON t.id = u.turma_id
   LEFT JOIN usuarios v ON v.id = a.validado_por`;
 
@@ -1449,6 +1451,16 @@ export function criarRotas(bd, opcoes = {}) {
       );
 
       return { corpo: { atividade: await buscarAtividade(bd, atual.id), resumo: await resumo(bd, usuario.id) } };
+    }],
+
+    // Marca a conversa como lida: é o que apaga a bolinha da caixa de entrada.
+    ['POST', /^\/api\/atividades\/(\d+)\/lida$/, async (ctx) => {
+      const usuario = ctx.exigirLogin();
+      const atual = await buscarAtividade(bd, Number(ctx.parametros[0]));
+      if (!atual) throw erro(404, 'Atividade não encontrada.');
+      if (atual.usuario_id !== usuario.id) throw erro(403, 'Essa atividade é de outro aluno.');
+      await bd.run('UPDATE atividades SET lida_em = ? WHERE id = ?', new Date().toISOString(), atual.id);
+      return { corpo: { ok: true } };
     }],
 
     // Devolvida para correção, a atividade volta pela porta do reenvio: o aluno

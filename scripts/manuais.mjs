@@ -171,16 +171,27 @@ const aluno = {
       dica: 'Só os quatro primeiros campos são obrigatórios. O resto ajuda o professor a validar mais rápido.',
     },
     {
+      titulo: 'A caixa de entrada das suas atividades',
+      texto: [
+        'Abaixo do seu progresso fica a caixa de entrada. Cada linha é uma conversa sobre uma '
+        + 'atividade: o que você mandou e o que o professor respondeu.',
+        'A bolinha verde marca o que ainda não foi lido, e o que precisa de você fica em cima da '
+        + 'lista. Toque numa linha para abrir a conversa inteira.',
+      ],
+      imagem: 'aluno-caixa.png',
+      dica: 'A conversa guarda tudo: o que você lançou, o que o professor pediu e o que foi aprovado.',
+    },
+    {
       titulo: 'Se o professor devolver para correção',
       texto: [
-        'A atividade devolvida não é editada: você a reenvia. No lugar do botão "Editar" aparece '
-        + '"Reenviar para validação".',
+        'A atividade devolvida não é editada: você a reenvia. Abra a conversa e, no lugar do botão '
+        + '"Editar", aparece "Reenviar para validação".',
         'Ali você corrige o que foi pedido e informa quantas horas levou fazendo essa correção. '
         + 'Esse tempo é somado às suas horas — refazer também conta.',
         'Depois de reenviar, a atividade volta para a fila e o professor recebe o aviso.',
       ],
       imagem: 'aluno-reenviar.png',
-      dica: 'O que o professor pediu continua visível no cartão, para você conferir se atendeu tudo.',
+      dica: 'O que o professor pediu fica registrado na conversa, para você conferir se atendeu tudo.',
     },
     {
       titulo: 'Acompanhar o seu progresso',

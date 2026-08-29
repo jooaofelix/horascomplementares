@@ -243,19 +243,49 @@
 
   <!-- ---- PROFESSOR ---- -->
   <div id="painel-professor" class="oculto">
-    <div class="abas" id="abas-professor">
-      <button class="ativa" data-aba="aulas">Aulas</button>
-      <button data-aba="turma">Alunos</button>
-      <button data-aba="registros">Horas <span id="contador-pendentes"></span></button>
-      <button data-aba="turmas">Turmas</button>
+    <!-- Tela inicial do professor: quatro botões grandes, cada um dizendo o que
+         faz. Abrir um deles esconde o menu e mostra o "Voltar". -->
+    <div id="inicio-professor">
+      <p class="explicacao" id="saudacao-professor"></p>
+      <div class="painel-resumo oculto" id="resumo-professor"></div>
+
+      <div class="menu-grande" id="menu-professor">
+        <button data-aba="aulas" data-area="aulas">
+          <span class="icone" aria-hidden="true">📚</span>
+          <span class="rotulo">Aulas e tarefas</span>
+          <span class="explica">Publicar a aula, o material e a tarefa. Corrigir o que os alunos entregaram.</span>
+          <span class="marca oculto" id="marca-entregas"></span>
+        </button>
+        <button data-aba="registros" data-area="horas">
+          <span class="icone" aria-hidden="true">⏱️</span>
+          <span class="rotulo">Horas complementares</span>
+          <span class="explica">Ler o que o aluno mandou e aprovar, devolver ou reprovar as horas.</span>
+          <span class="marca oculto" id="marca-horas"></span>
+        </button>
+        <button data-aba="turma" data-area="alunos">
+          <span class="icone" aria-hidden="true">👥</span>
+          <span class="rotulo">Meus alunos</span>
+          <span class="explica">Quanto cada um já tem, e o seu caderno de anotações sobre eles.</span>
+          <span class="marca oculto" id="marca-alunos"></span>
+        </button>
+        <button data-aba="turmas" data-area="turmas">
+          <span class="icone" aria-hidden="true">🏫</span>
+          <span class="rotulo">Turmas e matérias</span>
+          <span class="explica">Criar turma, pegar o código para os alunos, abrir uma matéria nova.</span>
+          <span class="marca oculto" id="marca-turmas"></span>
+        </button>
+      </div>
+    </div>
+
+    <div id="topo-secao" class="oculto">
+      <button class="voltar" id="btn-voltar-inicio">‹ Voltar ao início</button>
+      <h2 id="titulo-secao"></h2>
     </div>
 
     <div class="cartao oculto" id="filtro-turma-cartao">
       <label for="filtro-turma">Matéria que você está vendo</label>
       <select id="filtro-turma"></select>
     </div>
-
-    <div class="painel-resumo oculto" id="resumo-professor"></div>
 
     <div id="aba-turma" class="cartao" data-area="alunos">
       <span class="etiqueta">Turma</span>

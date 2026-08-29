@@ -29,6 +29,7 @@ const estado = {
   materias: [],
   minhasMaterias: [],
   entregasACorrigir: 0,
+  abaAberta: null,
   turmaFiltro: '',
   materiaFiltro: '',
   limiteArquivo: 0,
@@ -579,33 +580,48 @@ async function lerArquivo(arquivo) {
 
 // ---------------------------------------------------------------- professor
 
-// Mostrar a aba é o mesmo trabalho no clique e na abertura da tela — se fosse
-// só no clique, quem acabou de entrar veria a aba marcada e o painel de outra.
+// A tela do professor tem dois estados: o menu inicial, com os quatro botões
+// grandes, e uma seção aberta, com o "Voltar ao início" em cima. Nada de abas
+// pequenas — quem usa isso uma vez por semana precisa ver para onde está indo.
+const SECOES = {
+  aulas: 'Aulas e tarefas',
+  registros: 'Horas complementares',
+  turma: 'Meus alunos',
+  turmas: 'Turmas e matérias',
+};
+
 function mostrarAba(qual) {
   const aba = typeof qual === 'string' ? qual : qual?.dataset.aba;
-  if (!aba) return;
-  $$('#abas-professor button').forEach((b) => b.classList.toggle('ativa', b.dataset.aba === aba));
-  // Só as abas do dia a dia: cursos, pessoas, convites e integração agora
-  // vivem na tela de configurações e não são tocadas aqui.
-  for (const nome of ['aulas', 'turma', 'registros', 'turmas']) {
-    $(`#aba-${nome}`).classList.toggle('oculto', nome !== aba);
+  estado.abaAberta = aba && SECOES[aba] ? aba : null;
+
+  for (const nome of Object.keys(SECOES)) {
+    $(`#aba-${nome}`).classList.toggle('oculto', nome !== estado.abaAberta);
   }
+  $('#inicio-professor').classList.toggle('oculto', Boolean(estado.abaAberta));
+  $('#topo-secao').classList.toggle('oculto', !estado.abaAberta);
+  if (estado.abaAberta) $('#titulo-secao').textContent = SECOES[estado.abaAberta];
+
+  // O seletor de matéria só aparece onde ele muda alguma coisa.
   $('#filtro-turma-cartao').classList.toggle(
     'oculto',
-    !['turma', 'registros', 'aulas'].includes(aba) || estado.materias.length < 2,
+    !['turma', 'registros', 'aulas'].includes(estado.abaAberta) || estado.materias.length < 2,
   );
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-$$('#abas-professor button').forEach((botao) => {
+$$('#menu-professor button').forEach((botao) => {
   botao.onclick = () => {
     mostrarAba(botao);
-    // Trocar de aba busca o estado atual: um aluno pode ter entrado na turma
+    // Abrir a seção busca o estado atual: um aluno pode ter entrado na turma
     // enquanto a página estava aberta.
-    if (['turma', 'registros', 'aulas'].includes(botao.dataset.aba)) {
-      carregarProfessor().catch(falhar);
-    }
+    carregarProfessor().catch(falhar);
   };
 });
+
+$('#btn-voltar-inicio').onclick = () => {
+  mostrarAba(null);
+  carregarProfessor().catch(falhar);
+};
 
 $('#filtro-turma').addEventListener('change', async (e) => {
   estado.materiaFiltro = e.target.value;
@@ -614,6 +630,33 @@ $('#filtro-turma').addEventListener('change', async (e) => {
   estado.turmaFiltro = materia ? String(materia.turma_id) : '';
   await carregarProfessor();
 });
+
+// As marcas vermelhas do menu: o que está esperando por esta pessoa hoje.
+function desenharMenuProfessor() {
+  const naFila = estado.atividades.filter((a) => NA_FILA.includes(a.status || 'pendente')).length;
+  const comHoras = estado.materias.some((m) => m.conta_horas);
+
+  const marcar = (id, quantos, um, varios) => {
+    const el = $(id);
+    if (!el) return;
+    el.classList.toggle('oculto', !quantos);
+    el.textContent = quantos ? `${quantos} ${quantos > 1 ? varios : um}` : '';
+  };
+  marcar('#marca-entregas', estado.entregasACorrigir, 'entrega para corrigir', 'entregas para corrigir');
+  marcar('#marca-horas', comHoras ? naFila : 0, 'lançamento para ver', 'lançamentos para ver');
+  marcar('#marca-turmas', estado.turmas.length ? 0 : 1, 'crie a sua primeira turma', '');
+
+  // "Profa. Helena Duarte" vira "Helena": é assim que ela é chamada.
+  const primeiro = (estado.usuario?.nome || '')
+    .replace(/^(prof|profa|professor|professora|dr|dra)\.?\s+/i, '')
+    .split(' ')[0];
+  $('#saudacao-professor').textContent = estado.turmas.length
+    ? `Olá, ${primeiro}. O que você quer fazer agora?`
+    : 'Bem-vinda! Comece criando a sua turma em "Turmas e matérias".';
+
+  // Sem nenhuma matéria que gere horas, esse botão só confunde.
+  $('#menu-professor button[data-aba="registros"]').classList.toggle('oculto', !comHoras);
+}
 
 function desenharResumoProfessor() {
   const alunos = estado.alunos;
@@ -718,8 +761,7 @@ function desenharListaProfessor() {
     ? lista.map((a) => cartaoAtividade(a, { comAluno: true, comValidacao: true })).join('')
     : '<p class="vazio">Nada para mostrar com esses filtros.</p>';
 
-  const pendentes = estado.atividades.filter((a) => NA_FILA.includes(a.status || 'pendente')).length;
-  $('#contador-pendentes').textContent = pendentes ? `(${pendentes})` : '';
+
 }
 
 async function mostrarHistorico(id, alvo) {
@@ -1834,14 +1876,14 @@ async function carregarProfessor() {
         ).join('')}</optgroup>`;
     }),
   ].join('');
-  const abaAtiva = document.querySelector('#abas-professor button.ativa')?.dataset.aba;
   $('#filtro-turma-cartao').classList.toggle(
     'oculto',
-    estado.materias.length < 2 || !['turma', 'registros'].includes(abaAtiva),
+    estado.materias.length < 2 || !['turma', 'registros', 'aulas'].includes(estado.abaAberta),
   );
 
   desenharAlunos();
   desenharResumoProfessor();
+  desenharMenuProfessor();
   desenharListaProfessor();
   desenharTurmas();
   desenharEscolhaTurmas();
@@ -1884,7 +1926,7 @@ async function iniciar() {
     estado.categorias = dados.categorias;
     estado.cursos = dados.cursos || [];
     await carregarProfessor();
-    mostrarAba('aulas');
+    mostrarAba(null);
     await carregarChaves();
     if (u.papel === 'admin') await carregarAdmin();
     if (u.pode_convidar) await carregarConvites();

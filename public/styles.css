@@ -254,11 +254,13 @@ button.mini { min-height: 42px; padding: 8px 16px; font-size: 15px; }
 .abas button[data-aba="turmas"].ativa { background: var(--turmas); border-color: var(--turmas); }
 
 /* Fio colorido no topo do cartão, dizendo de que área ele é. */
+/* A cor da área vale para qualquer peça, não só para os cartões: é ela que faz
+   a professora reconhecer "o laranja é o das horas" sem ler. */
+[data-area="aulas"] { --cor-area: var(--aulas); }
+[data-area="horas"] { --cor-area: var(--horas); }
+[data-area="alunos"] { --cor-area: var(--alunos); }
+[data-area="turmas"] { --cor-area: var(--turmas); }
 .cartao[data-area] { border-top: 3px solid var(--cor-area, var(--acento)); }
-.cartao[data-area="aulas"] { --cor-area: var(--aulas); }
-.cartao[data-area="horas"] { --cor-area: var(--horas); }
-.cartao[data-area="alunos"] { --cor-area: var(--alunos); }
-.cartao[data-area="turmas"] { --cor-area: var(--turmas); }
 .cartao[data-area] > h2 { color: var(--cor-area); }
 
 /* Etiqueta de seção acima do título, para separar blocos sem mais uma caixa. */
@@ -292,6 +294,46 @@ button.mini { min-height: 42px; padding: 8px 16px; font-size: 15px; }
 .dobra[open] > summary .mais { transform: rotate(45deg); }
 @media (prefers-reduced-motion: no-preference) {
   .dobra > summary .mais { transition: transform .2s ease; }
+}
+
+/* ================= MENU DO PROFESSOR ================= */
+
+/* Botões grandes, cada um dizendo com todas as letras o que faz. É a tela que
+   a professora vê ao entrar, e ela precisa acertar o caminho sem adivinhar. */
+.menu-grande { display: grid; gap: 14px; margin-bottom: 24px; }
+
+.menu-grande button {
+  display: grid; grid-template-columns: 56px 1fr; gap: 4px 18px; align-items: start;
+  width: 100%; text-align: left; padding: 22px; min-height: 96px;
+  background: var(--superficie); color: var(--texto);
+  border: 2px solid var(--borda); border-left: 6px solid var(--cor-area, var(--acento));
+  border-radius: 16px; box-shadow: 0 1px 2px rgba(15, 30, 25, .05);
+}
+.menu-grande button:hover, .menu-grande button:focus-visible {
+  border-color: var(--cor-area, var(--acento));
+  box-shadow: 0 6px 18px rgba(15, 30, 25, .1);
+}
+.menu-grande .icone { grid-row: 1 / span 2; font-size: 40px; line-height: 1; }
+.menu-grande .rotulo { font-size: 21px; font-weight: 700; color: var(--cor-area, var(--acento)); }
+.menu-grande .explica { font-size: 16px; color: var(--suave); font-weight: 400; line-height: 1.45; }
+.menu-grande .marca {
+  grid-column: 2; justify-self: start; margin-top: 8px;
+  background: var(--horas-fundo); color: var(--horas); border: 1px solid #e8d6b4;
+  border-radius: 999px; padding: 5px 12px; font-size: 14px; font-weight: 700;
+}
+
+#saudacao-professor { font-size: 19px; color: var(--texto); margin: 0 0 18px; }
+
+#topo-secao { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
+#topo-secao h2 { margin: 0; font-size: 24px; }
+.voltar {
+  width: auto; flex: 0 0 auto; padding: 12px 18px; font-size: 16px; font-weight: 650;
+  background: var(--superficie); color: var(--acento); border: 2px solid var(--borda);
+}
+.voltar:hover { border-color: var(--acento); }
+
+@media (min-width: 760px) {
+  .menu-grande { grid-template-columns: 1fr 1fr; }
 }
 
 /* Documento anexado: nome, o que fazer com ele, e o próprio arquivo aberto

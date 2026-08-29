@@ -96,7 +96,15 @@ A tela do dia a dia tem só o que se usa toda semana:
 | Quem | Vê |
 | --- | --- |
 | **Aluno** | as aulas e tarefas, separadas por matéria; abaixo, as próprias horas complementares |
-| **Professor** | abas **Aulas**, **Alunos**, **Horas** e **Turmas** |
+| **Professor** | uma tela inicial com quatro botões grandes, e uma coisa de cada vez |
+
+A tela do professor foi desenhada para quem usa o computador de vez em quando: ao entrar, ele vê
+**"Olá, Helena. O que você quer fazer agora?"** e quatro botões do tamanho de um cartão, cada um com
+um ícone, o nome e uma frase dizendo o que faz — *Aulas e tarefas*, *Horas complementares*, *Meus
+alunos*, *Turmas e matérias*. Cada área tem a sua cor, e o que está esperando por ele aparece como
+uma etiqueta no botão ("2 entregas para corrigir"). Abrir um deles esconde o resto e mostra um
+**‹ Voltar ao início** no topo — nunca há duas telas disputando a atenção, nem abas pequenas para
+acertar com o dedo. Quem não tem matéria que gere horas nem vê o botão de horas.
 
 O resto — cursos e categorias, pessoas, convites, integração e os próprios dados — fica atrás da
 **engrenagem** no canto superior, numa tela de configurações com suas próprias abas. É configuração

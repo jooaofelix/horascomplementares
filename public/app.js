@@ -1233,7 +1233,11 @@ $('#btn-salvar-perfil').onclick = async () => {
   try {
     await api('/api/eu', {
       metodo: 'PUT',
-      corpo: { nome: $('#cfg-nome').value, instituicao: $('#cfg-instituicao').value },
+      corpo: {
+        nome: $('#cfg-nome').value,
+        instituicao: $('#cfg-instituicao').value,
+        avisar_email: $('#cfg-avisar').checked,
+      },
     });
     avisar('Dados salvos.', 'ok');
     await iniciar();
@@ -1349,6 +1353,17 @@ function blocoTarefaAluno(t, materiaNome = '') {
             : `Suas ${horas(entrega.horas || 0)} já entraram como horas validadas.`}</p>`
       : `<div style="margin-top:12px">
            <textarea data-entrega-texto="${t.id}" placeholder="Escreva sua resposta aqui">${escapar(entrega?.texto || '')}</textarea>
+           ${entrega?.status === 'devolvida'
+             ? `<div class="campo" style="margin-top:10px">
+                  <label>Quanto tempo levou para refazer <span class="opcional">(em horas)</span></label>
+                  <input type="number" min="0" step="0.5" inputmode="decimal"
+                         data-entrega-revisao="${t.id}" placeholder="Ex.: 1,5">
+                  <div class="ajuda">Esse tempo entra na conta das suas horas quando o professor aceitar.</div>
+                </div>`
+             : ''}
+           ${entrega?.horas_revisao
+             ? `<p class="sub" style="margin:10px 0 0">Revisão já informada: ${horas(entrega.horas_revisao)}.</p>`
+             : ''}
            <div class="campo" style="margin-top:10px">
              <label>Anexo <span class="opcional">(PDF, JPG ou PNG)</span></label>
              <input type="file" data-entrega-arquivo="${t.id}" accept=".pdf,.pptx,.ppt,.odp,.docx,.doc,.odt,.xlsx,.xls,.jpg,.jpeg,.png,.webp,.heic,.txt,.md,.csv">
@@ -1412,12 +1427,21 @@ function desenharMuralAluno() {
 $('#mural-aluno').addEventListener('click', async (e) => {
   const id = e.target.dataset.enviarEntrega;
   if (!id) return;
+  // A mesma tarefa aparece em "Para entregar" e dentro da matéria. Ler os
+  // campos do cartão em que o aluno clicou — e não do primeiro da página — é o
+  // que faz o texto enviado ser o que ele escreveu.
+  const cartao = e.target.closest('.item') || document;
+  const campo = (nome) => cartao.querySelector(`[data-entrega-${nome}="${id}"]`);
   e.target.disabled = true;
   try {
-    const arquivo = await lerParaEnvio($(`[data-entrega-arquivo="${id}"]`));
+    const arquivo = await lerParaEnvio(campo('arquivo'));
     await api(`/api/tarefas/${id}/entrega`, {
       metodo: 'PUT',
-      corpo: { texto: $(`[data-entrega-texto="${id}"]`).value, arquivo },
+      corpo: {
+        texto: campo('texto').value,
+        horas_revisao: campo('revisao')?.value || undefined,
+        arquivo,
+      },
     });
     await carregarMuralAluno();
     avisar('Entrega enviada. O professor vai avaliar.', 'ok');
@@ -1676,7 +1700,12 @@ $('#mural-professor').addEventListener('click', async (e) => {
                   ? `<div class="campo"><label>Nota (até ${numero(tarefa.nota_maxima)})</label>
                        <input type="number" min="0" step="0.5" inputmode="decimal" data-av-nota="${en.id}" value="${en.nota ?? ''}"></div>`
                   : `<div class="campo"><label>Horas a lançar</label>
-                       <input type="number" min="0" step="0.5" inputmode="decimal" data-av-horas="${en.id}" value="${en.horas ?? ''}"></div>`}
+                       <input type="number" min="0" step="0.5" inputmode="decimal" data-av-horas="${en.id}"
+                              value="${en.horas ?? (((tarefa.horas_sugeridas ?? 0) + (en.horas_revisao ?? 0)) || '')}">
+                       ${en.horas_revisao
+                         ? `<div class="ajuda">${numero(tarefa.horas_sugeridas ?? 0)} h da tarefa + ${
+                              numero(en.horas_revisao)} h que o aluno levou refazendo.</div>`
+                         : ''}</div>`}
                 <div class="campo" style="flex:2"><label>Observação</label>
                   <input data-av-obs="${en.id}" value="${escapar(en.observacao || '')}" placeholder="Obrigatória para devolver"></div>
               </div>
@@ -1790,6 +1819,7 @@ async function iniciar() {
     $('#painel-aluno').classList.add('oculto');
     $('#cfg-nome').value = u.nome;
     $('#cfg-instituicao').value = u.instituicao || '';
+    $('#cfg-avisar').checked = u.avisar_email !== 0;
     estado.turmas = dados.turmas || [];
     $('#config-botao-convites').classList.toggle('oculto', !u.pode_convidar);
     $('#config-botao-integracao').classList.remove('oculto');

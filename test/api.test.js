@@ -1850,3 +1850,126 @@ test('banco atrás do código responde dizendo que faltam migrações', async ()
     await new Promise((r) => servidor.close(r));
   }
 });
+
+// ---------------------------------------------------------------- avisos e revisão
+
+// Um serviço de e-mail de mentira: guarda o que teria sido enviado.
+function emailDeTeste() {
+  const enviados = [];
+  return {
+    enviados,
+    ativo: true,
+    async enviar({ para, assunto, texto, anexos = [] }) {
+      enviados.push({ para, assunto, texto, anexos });
+      return { enviado: true };
+    },
+  };
+}
+
+async function comEmail(fn) {
+  const bd = bancoLocal(':memory:');
+  const email = emailDeTeste();
+  const servidor = criarServidor(bd, { arquivos: armazenamentoD1(bd), email });
+  await new Promise((r) => servidor.listen(0, '127.0.0.1', r));
+  try {
+    await fn({ base: `http://127.0.0.1:${servidor.address().port}`, email });
+  } finally {
+    await new Promise((r) => servidor.close(r));
+  }
+}
+
+test('o professor recebe e-mail a cada envio do aluno', async () => {
+  await comEmail(async ({ base, email }) => {
+    const admin = await criarProfessor(base);
+    const sala = (await admin('/api/turmas', {
+      metodo: 'POST', corpo: { nome: '3A', materia: 'Estágio', conta_horas: true },
+    })).dados;
+    const ana = await criarAluno(base, 'Ana Ribeiro', 'ana@ex.br', sala.turma.codigo);
+
+    // 1. hora complementar lançada pelo aluno: a atividade inteira vai no
+    //    e-mail, com o arquivo que ela levava junto.
+    await ana('/api/atividades', {
+      metodo: 'POST',
+      corpo: { ...atividadeBase, arquivo: arquivoExemplo('certificado.pdf') },
+    });
+    assert.equal(email.enviados.length, 1);
+    assert.deepEqual(email.enviados[0].para, ['marina@exemplo.br']);
+    assert.match(email.enviados[0].assunto, /Horas para validar.*Ana Ribeiro/);
+    const corpo = email.enviados[0].texto;
+    assert.match(corpo, /Atividade: Observação livre no pátio/);
+    assert.match(corpo, /Carga declarada: 2.5 h/);
+    assert.match(corpo, /Local: EMEI Vila Nova/);
+    assert.match(corpo, /Certificado: Certificado 2026\/031/);
+    assert.match(corpo, /Registro cursivo do terceiro encontro/, 'a análise vai no corpo');
+    assert.deepEqual(email.enviados[0].anexos.map((a) => a.nome), ['certificado.pdf']);
+
+    // 2. entrega de tarefa
+    const tarefa = (await admin('/api/tarefas', {
+      metodo: 'POST',
+      corpo: { materia_ids: [sala.materias[0].id], titulo: 'Relatório', horas_sugeridas: 4 },
+    })).dados.tarefa;
+    await ana(`/api/tarefas/${tarefa.id}/entrega`, { metodo: 'PUT', corpo: { texto: 'Segue.' } });
+    assert.equal(email.enviados.length, 2);
+    assert.match(email.enviados[1].assunto, /Nova entrega: Relatório — Ana Ribeiro/);
+
+    // Quem desligou o aviso em "Meus dados" para de receber.
+    await admin('/api/eu', { metodo: 'PUT', corpo: { nome: 'Profa. Marina', avisar_email: false } });
+    await ana('/api/atividades', { metodo: 'POST', corpo: { ...atividadeBase, titulo: 'Outra' } });
+    assert.equal(email.enviados.length, 2, 'nada de novo depois de desligar');
+  });
+});
+
+test('o tempo que o aluno leva refazendo entra nas horas da tarefa', async () => {
+  await comEmail(async ({ base, email }) => {
+    const admin = await criarProfessor(base);
+    const sala = (await admin('/api/turmas', {
+      metodo: 'POST', corpo: { nome: '3A', materia: 'Estágio', conta_horas: true },
+    })).dados;
+    const ana = await criarAluno(base, 'Ana', 'ana@ex.br', sala.turma.codigo);
+
+    const tarefa = (await admin('/api/tarefas', {
+      metodo: 'POST',
+      corpo: { materia_ids: [sala.materias[0].id], titulo: 'Registro de campo', horas_sugeridas: 4 },
+    })).dados.tarefa;
+
+    const entrega = (await ana(`/api/tarefas/${tarefa.id}/entrega`, {
+      metodo: 'PUT', corpo: { texto: 'Primeira versão.' },
+    })).dados.entrega;
+
+    // O professor pede revisão.
+    await admin(`/api/entregas/${entrega.id}/avaliacao`, {
+      metodo: 'POST', corpo: { status: 'devolvida', observacao: 'Falta a cena em ordem.' },
+    });
+
+    // O aluno refaz e informa quanto tempo levou nisso.
+    const refeita = await ana(`/api/tarefas/${tarefa.id}/entrega`, {
+      metodo: 'PUT', corpo: { texto: 'Segunda versão, em ordem.', horas_revisao: 1.5 },
+    });
+    assert.equal(refeita.dados.entrega.horas_revisao, 1.5);
+    assert.match(email.enviados.at(-1).assunto, /Entrega refeita/);
+    assert.match(email.enviados.at(-1).texto, /revisão informado pelo aluno: 1.5 h/);
+
+    // Aceitar sem digitar nada lança as 4 h da tarefa mais 1,5 h de revisão.
+    const aceita = await admin(`/api/entregas/${entrega.id}/avaliacao`, {
+      metodo: 'POST', corpo: { status: 'aceita' },
+    });
+    assert.equal(aceita.dados.horas_lancadas, 5.5);
+    assert.equal((await ana('/api/eu')).dados.resumo.validado, 5.5);
+
+    // Refazer de novo soma ao que já havia sido informado.
+    await admin(`/api/entregas/${entrega.id}/avaliacao`, {
+      metodo: 'POST', corpo: { status: 'devolvida', observacao: 'Mais uma coisa.' },
+    });
+    const terceira = await ana(`/api/tarefas/${tarefa.id}/entrega`, {
+      metodo: 'PUT', corpo: { texto: 'Terceira versão.', horas_revisao: 0.5 },
+    });
+    assert.equal(terceira.dados.entrega.horas_revisao, 2);
+
+    // E o professor pode digitar outro número por cima do sugerido.
+    const final = await admin(`/api/entregas/${entrega.id}/avaliacao`, {
+      metodo: 'POST', corpo: { status: 'aceita', horas: 5 },
+    });
+    assert.equal(final.dados.horas_lancadas, 5);
+    assert.equal((await ana('/api/eu')).dados.resumo.validado, 5, 'a atividade é a mesma, não duplica');
+  });
+});

@@ -3,6 +3,7 @@
 
 import { adaptarD1 } from './src/d1.js';
 import { armazenamentoR2, armazenamentoD1 } from './src/arquivos.js';
+import { emailDoAmbiente } from './src/email.js';
 import { lerCookies, usuarioDaSessao } from './src/auth.js';
 import { criarRotas, despachar, ErroHttp, erroDeBancoAtrasado, AVISO_BANCO_ATRASADO } from './src/api.js';
 
@@ -13,7 +14,7 @@ const json = (corpo, status = 200, cabecalhos = {}) =>
   });
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (!url.pathname.startsWith('/api/')) {
       return env.ASSETS ? env.ASSETS.fetch(request) : json({ erro: 'Página não encontrada.' }, 404);
@@ -25,6 +26,9 @@ export default {
       // Com o bucket R2 ligado, os arquivos vão para lá; sem ele, ficam no
       // próprio D1, com limite bem menor mas sem nada para configurar.
       arquivos: env.ARQUIVOS ? armazenamentoR2(env.ARQUIVOS) : armazenamentoD1(bd),
+      // O aviso por e-mail sai depois da resposta: o aluno não espera por ele.
+      email: emailDoAmbiente(env),
+      depois: (promessa) => ctx?.waitUntil?.(promessa),
     });
 
     try {

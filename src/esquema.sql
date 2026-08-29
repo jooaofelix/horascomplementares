@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   matricula   TEXT,
   instituicao TEXT,
   pode_convidar INTEGER NOT NULL DEFAULT 0,
+  avisar_email  INTEGER NOT NULL DEFAULT 1,
   pre_cadastrado INTEGER NOT NULL DEFAULT 0,
   curso_id    INTEGER REFERENCES cursos(id) ON DELETE SET NULL,
   semestre    TEXT,
@@ -265,6 +266,7 @@ CREATE TABLE IF NOT EXISTS tarefas (
 CREATE TABLE IF NOT EXISTS entregas (
   id            INTEGER PRIMARY KEY,
   nota          REAL,
+  horas_revisao REAL,
   tarefa_id     INTEGER NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
   aluno_id      INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
   texto         TEXT NOT NULL DEFAULT '',

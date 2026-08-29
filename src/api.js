@@ -540,6 +540,71 @@ async function importarAtividade(bd, chave, turma, item) {
   return { status: 'criada', atividade_id: ultimoId, aluno_criado: aluno.criado };
 }
 
+// ---------- aviso por e-mail ----------
+
+// Quem recebe o aviso de uma entrega: o professor de cada matéria que a tarefa
+// alcança. Quem desligou o aviso não entra na lista.
+const professoresDaTarefa = (bd, tarefaId) =>
+  bd.all(
+    `SELECT DISTINCT p.id, p.nome, p.email, p.avisar_email
+       FROM tarefas_materias tm
+       JOIN materias m ON m.id = tm.materia_id
+       JOIN usuarios p ON p.id = m.professor_id
+      WHERE tm.tarefa_id = ?`,
+    tarefaId,
+  );
+
+// Quem valida as horas do aluno: o professor de cada matéria da sala dele que
+// gera hora complementar; não havendo nenhuma, quem criou a sala.
+const quemValidaAsHoras = (bd, alunoId) =>
+  bd.all(
+    `SELECT DISTINCT p.id, p.nome, p.email, p.avisar_email
+       FROM usuarios a
+       JOIN turmas t ON t.id = a.turma_id
+       LEFT JOIN materias m ON m.turma_id = t.id AND m.conta_horas = 1
+       JOIN usuarios p ON p.id = COALESCE(m.professor_id, t.professor_id)
+      WHERE a.id = ?`,
+    alunoId,
+  );
+
+// O aviso nunca atrapalha o aluno: falha de e-mail vira linha no log, não erro
+// na tela. No Worker o envio segue depois da resposta, via ctx.waitUntil.
+function avisarPorEmail(opcoes, pessoas, assunto, texto, anexos = []) {
+  const email = opcoes.email;
+  if (!email?.ativo) return;
+  const para = pessoas.filter((p) => p.email && p.avisar_email !== 0).map((p) => p.email);
+  if (!para.length) return;
+
+  const envio = email.enviar({ para, assunto, texto, anexos }).catch((e) => {
+    console.error('Não consegui avisar por e-mail:', e.message);
+  });
+  if (opcoes.depois) opcoes.depois(envio);
+}
+
+const linkDoSistema = (ctx) => (ctx.url?.origin ? `\n\nAbrir no sistema: ${ctx.url.origin}` : '');
+
+// Os arquivos que o aluno acabou de mandar seguem anexados ao aviso — eles já
+// estão aqui em memória, não precisam ser lidos do armazenamento de novo.
+const anexosDoPedido = (corpo, quais) =>
+  quais
+    .map((campo) => corpo[campo])
+    .filter((a) => a && a.nome && a.conteudo)
+    .map((a) => ({ nome: a.nome, conteudo: a.conteudo }));
+
+// A atividade inteira em texto, para o professor ler no próprio e-mail.
+const atividadeEmTexto = (aluno, d) =>
+  [
+    `Aluno: ${aluno.nome}${aluno.matricula ? ` (${aluno.matricula})` : ''}`,
+    `Atividade: ${d.titulo}`,
+    `Categoria: ${d.categoria}`,
+    `Carga declarada: ${d.horas} h`,
+    `Data: ${d.data_atividade}${d.data_fim ? ` a ${d.data_fim}` : ''}`,
+    d.local ? `Local: ${d.local}` : null,
+    d.responsavel ? `Responsável: ${d.responsavel}` : null,
+    d.comprovante ? `Certificado: ${d.comprovante}` : null,
+    d.texto ? `\nAnálise do aluno:\n${d.texto}` : null,
+  ].filter(Boolean).join('\n');
+
 // ---------- auditoria ----------
 
 // Cada passo vira uma linha nova. Nada aqui é editado ou apagado depois: o
@@ -1245,10 +1310,15 @@ export function criarRotas(bd, opcoes = {}) {
       const usuario = ctx.exigirLogin();
       const nome = texto(ctx.corpo.nome ?? usuario.nome, 'seu nome', { max: 120 });
 
-      if (usuario.papel === 'professor') {
+      if (PAPEIS_EQUIPE.includes(usuario.papel)) {
         const instituicao =
           texto(ctx.corpo.instituicao, 'a instituição', { obrigatorio: false, max: 160 }) || null;
-        await bd.run('UPDATE usuarios SET nome = ?, instituicao = ? WHERE id = ?', nome, instituicao, usuario.id);
+        await bd.run(
+          'UPDATE usuarios SET nome = ?, instituicao = ?, avisar_email = ? WHERE id = ?',
+          nome, instituicao,
+          ctx.corpo.avisar_email === undefined ? usuario.avisar_email : (ctx.corpo.avisar_email ? 1 : 0),
+          usuario.id,
+        );
         return { corpo: { ok: true } };
       }
 
@@ -1307,6 +1377,16 @@ export function criarRotas(bd, opcoes = {}) {
         `Atividade lançada pelo aluno: ${d.titulo} (${d.horas} h declaradas).`,
         { horas: d.horas, categoria: d.categoria });
 
+      avisarPorEmail(
+        opcoes,
+        await quemValidaAsHoras(bd, usuario.id),
+        `Horas para validar: ${d.titulo} — ${usuario.nome}`,
+        `${usuario.nome} lançou horas complementares no sistema.\n\n`
+        + atividadeEmTexto(usuario, d)
+        + linkDoSistema(ctx),
+        anexosDoPedido(ctx.corpo, ['arquivo_analise', 'arquivo']),
+      );
+
       return {
         status: 201,
         corpo: { atividade: await buscarAtividade(bd, ultimoId), resumo: await resumo(bd, usuario.id) },
@@ -1346,6 +1426,17 @@ export function criarRotas(bd, opcoes = {}) {
       await registrar(bd, ctx, 'atividade', atual.id, 'editada',
         `Aluno editou a atividade; ela volta para a fila de análise.`,
         { antes: { horas: atual.horas, titulo: atual.titulo }, depois: { horas: d.horas, titulo: d.titulo } });
+
+      avisarPorEmail(
+        opcoes,
+        await quemValidaAsHoras(bd, usuario.id),
+        `Horas reenviadas: ${d.titulo} — ${usuario.nome}`,
+        `${usuario.nome} refez o lançamento e ele voltou para a fila.`
+        + (atual.motivo ? `\nVocê tinha pedido: ${atual.motivo}\n` : '')
+        + `\n${atividadeEmTexto(usuario, d)}`
+        + linkDoSistema(ctx),
+        anexosDoPedido(ctx.corpo, ['arquivo_analise', 'arquivo']),
+      );
 
       return { corpo: { atividade: await buscarAtividade(bd, atual.id), resumo: await resumo(bd, usuario.id) } };
     }],
@@ -1969,6 +2060,17 @@ export function criarRotas(bd, opcoes = {}) {
 
       const conteudo = typeof ctx.corpo.texto === 'string' ? ctx.corpo.texto : '';
       if (conteudo.length > LIMITE_TEXTO) throw erro(400, 'Texto grande demais.');
+
+      // Refazer dá trabalho, e esse trabalho conta: o aluno diz quantas horas
+      // levou na revisão e elas entram na conta quando o professor aceitar.
+      let horasRevisao = atual?.horas_revisao ?? null;
+      if (ctx.corpo.horas_revisao !== undefined && ctx.corpo.horas_revisao !== null
+          && ctx.corpo.horas_revisao !== '') {
+        const informado = Number(ctx.corpo.horas_revisao);
+        if (!Number.isFinite(informado) || informado < 0) throw erro(400, 'Horas de revisão inválidas.');
+        if (informado > 200) throw erro(400, 'Máximo de 200 horas de revisão.');
+        horasRevisao = (atual?.horas_revisao ?? 0) + informado;
+      }
       const arquivoId = ctx.corpo.arquivo
         ? (await guardarArquivo(bd, opcoes.arquivos, usuario, ctx.corpo.arquivo)).id
         : (atual?.arquivo_id ?? null);
@@ -1977,16 +2079,31 @@ export function criarRotas(bd, opcoes = {}) {
       const agora = new Date().toISOString();
       if (atual) {
         await bd.run(
-          `UPDATE entregas SET texto = ?, arquivo_id = ?, status = 'enviada', atualizada_em = ? WHERE id = ?`,
-          conteudo, arquivoId, agora, atual.id,
+          `UPDATE entregas SET texto = ?, arquivo_id = ?, horas_revisao = ?,
+                               status = 'enviada', atualizada_em = ?
+            WHERE id = ?`,
+          conteudo, arquivoId, horasRevisao, agora, atual.id,
         );
       } else {
         await bd.run(
-          `INSERT INTO entregas(tarefa_id, aluno_id, texto, arquivo_id, enviada_em, atualizada_em)
-           VALUES(?, ?, ?, ?, ?, ?)`,
-          tarefa.id, usuario.id, conteudo, arquivoId, agora, agora,
+          `INSERT INTO entregas(tarefa_id, aluno_id, texto, arquivo_id, horas_revisao, enviada_em, atualizada_em)
+           VALUES(?, ?, ?, ?, ?, ?, ?)`,
+          tarefa.id, usuario.id, conteudo, arquivoId, horasRevisao, agora, agora,
         );
       }
+
+      const refazendo = atual?.status === 'devolvida';
+      avisarPorEmail(
+        opcoes,
+        await professoresDaTarefa(bd, tarefa.id),
+        `${refazendo ? 'Entrega refeita' : 'Nova entrega'}: ${tarefa.titulo} — ${usuario.nome}`,
+        `${usuario.nome} ${refazendo ? 'refez a entrega' : 'entregou'} a tarefa "${tarefa.titulo}".`
+        + (refazendo && horasRevisao ? `\nTempo de revisão informado pelo aluno: ${horasRevisao} h.` : '')
+        + (conteudo.trim() ? `\n\nResposta do aluno:\n${conteudo}` : '')
+        + linkDoSistema(ctx),
+        anexosDoPedido(ctx.corpo, ['arquivo']),
+      );
+
       return {
         corpo: {
           entrega: await bd.get(
@@ -2065,7 +2182,10 @@ export function criarRotas(bd, opcoes = {}) {
             throw erro(400, `A nota máxima desta tarefa é ${entrega.nota_maxima}.`);
           }
         }
-        horas = Number(ctx.corpo.horas ?? entrega.horas_sugeridas ?? 0);
+        // A carga da tarefa mais o tempo que o aluno gastou refazendo. O
+        // professor ainda pode digitar outro número por cima.
+        const sugeridas = (entrega.horas_sugeridas ?? 0) + (entrega.horas_revisao ?? 0);
+        horas = Number(ctx.corpo.horas ?? sugeridas);
         if (!Number.isFinite(horas) || horas < 0) throw erro(400, 'Horas inválidas.');
 
         if (horas > 0) {

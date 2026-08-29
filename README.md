@@ -202,6 +202,49 @@ complementares"** — para estágio, extensão, monitoria. Uma disciplina comum 
 
 Marcar depois funciona: a matéria passa a contar sem precisar recriar nada.
 
+## Aviso por e-mail a cada envio
+
+Todo envio de aluno chega no e-mail de quem vai avaliar — **com a atividade inteira no corpo da
+mensagem e o arquivo anexado**, para o professor ler sem precisar abrir o sistema:
+
+| O que o aluno fez | Quem recebe | O que vai no e-mail |
+| --- | --- | --- |
+| Lançou hora complementar | professor das matérias que geram horas na sala dele (senão, quem criou a sala) | ficha completa da atividade, a análise e os arquivos |
+| Entregou (ou refez) uma tarefa | professor de cada matéria que a tarefa alcança | a resposta escrita, o tempo de revisão e o arquivo |
+
+Cada professor liga e desliga isso em **Configurações → Meus dados**. O envio nunca atrasa nem
+derruba a ação do aluno: falha do serviço de e-mail vira linha no log, e no Cloudflare a mensagem
+sai depois da resposta (`waitUntil`).
+
+### Ligar o envio
+
+Sem configuração, o sistema funciona por inteiro e só não avisa. Para ligar, use qualquer serviço com
+API HTTP (o padrão é o [Resend](https://resend.com), plano gratuito suficiente para uma faculdade):
+
+```bash
+# no seu computador (.env, ou na frente do comando)
+EMAIL_CHAVE=re_xxx EMAIL_DE="Sala de Aula <avisos@seu-dominio.br>" npm start
+
+# no Cloudflare
+npx wrangler secret put EMAIL_CHAVE
+npx wrangler secret put EMAIL_DE
+```
+
+`EMAIL_URL` troca o serviço (qualquer um que aceite `{from, to, subject, text, attachments}`), e
+`EMAIL_RESPONDER_PARA` define o endereço de resposta.
+
+## Quando o professor pede revisão
+
+Ao devolver uma entrega, o professor escreve o que falta. Do lado do aluno aparece um campo a mais:
+**"quanto tempo levou para refazer"**. Esse tempo se soma à carga da tarefa — refazer dá trabalho, e
+o trabalho conta:
+
+- o aluno informa 1,5 h de revisão numa tarefa de 4 h;
+- na fila de correção, o professor vê `4 h da tarefa + 1,5 h que o aluno levou refazendo` e o campo
+  já vem com **5,5**;
+- ele pode digitar outro número por cima antes de aceitar;
+- devolveu de novo? o que o aluno informar soma ao que já havia.
+
 ## Anotações sobre o aluno
 
 No cartão de cada aluno há um caderno privado da equipe: "faltou nos dois últimos encontros de campo,

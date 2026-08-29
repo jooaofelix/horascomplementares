@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bancoLocal } from './src/sqlite.js';
 import { armazenamentoDisco } from './src/arquivos-disco.js';
+import { emailDoAmbiente } from './src/email.js';
 import { lerCookies, usuarioDaSessao } from './src/auth.js';
 import { criarRotas, despachar, ErroHttp, erroDeBancoAtrasado, AVISO_BANCO_ATRASADO } from './src/api.js';
 
@@ -80,6 +81,8 @@ export function criarServidor(bd = bancoLocal(), opcoes = {}) {
   const rotas = criarRotas(bd, {
     iteracoesSenha: process.env.ITERACOES_SENHA,
     arquivos: opcoes.arquivos ?? armazenamentoDisco(),
+    // Sem EMAIL_CHAVE e EMAIL_DE no ambiente, o aviso simplesmente não sai.
+    email: opcoes.email ?? emailDoAmbiente(process.env),
   });
 
   const servidor = http.createServer(async (req, res) => {

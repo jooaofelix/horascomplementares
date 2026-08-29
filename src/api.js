@@ -234,7 +234,8 @@ async function professorDaChave(bd, autorizacao) {
 // ---------- consultas ----------
 
 const COLUNAS_ATIVIDADE = `a.id, a.usuario_id, a.titulo, a.categoria, a.local, a.responsavel,
-  a.data_atividade, a.data_fim, a.horas, a.comprovante, a.texto, a.arquivo_nome, a.arquivo_id,
+  a.data_atividade, a.data_fim, a.horas, a.horas_revisao, a.comprovante, a.texto,
+  a.arquivo_nome, a.arquivo_id,
   a.analise_arquivo_id, an.nome AS analise_arquivo_nome, an.tipo AS analise_arquivo_tipo,
   cp.tipo AS arquivo_tipo,
   a.status, a.horas_aprovadas, a.motivo, a.analisado_em,
@@ -1398,6 +1399,11 @@ export function criarRotas(bd, opcoes = {}) {
       const atual = await buscarAtividade(bd, Number(ctx.parametros[0]));
       if (!atual) throw erro(404, 'Atividade não encontrada.');
       if (atual.usuario_id !== usuario.id) throw erro(403, 'Essa atividade é de outro aluno.');
+      // Depois de devolvida, não se edita: reenvia — e o reenvio pede o tempo
+      // que a correção levou.
+      if (atual.status === 'correcao') {
+        throw erro(409, 'Esta atividade foi devolvida para correção. Use "Reenviar para validação".');
+      }
 
       const d = await validarAtividade(bd, ctx.corpo);
       // Sem anexo novo, o que já estava continua valendo.
@@ -1439,6 +1445,83 @@ export function criarRotas(bd, opcoes = {}) {
       );
 
       return { corpo: { atividade: await buscarAtividade(bd, atual.id), resumo: await resumo(bd, usuario.id) } };
+    }],
+
+    // Devolvida para correção, a atividade volta pela porta do reenvio: o aluno
+    // manda a versão corrigida e diz quanto tempo levou nisso. Esse tempo entra
+    // na carga declarada, porque corrigir também é trabalho.
+    ['POST', /^\/api\/atividades\/(\d+)\/reenviar$/, async (ctx) => {
+      const usuario = ctx.exigirLogin();
+      const atual = await buscarAtividade(bd, Number(ctx.parametros[0]));
+      if (!atual) throw erro(404, 'Atividade não encontrada.');
+      if (atual.usuario_id !== usuario.id) throw erro(403, 'Essa atividade é de outro aluno.');
+      if (atual.status !== 'correcao') {
+        throw erro(409, 'Só dá para reenviar uma atividade que o professor devolveu para correção.');
+      }
+
+      if (ctx.corpo.horas_revisao === undefined || ctx.corpo.horas_revisao === null
+          || ctx.corpo.horas_revisao === '') {
+        throw erro(400, 'Informe quantas horas você levou para corrigir.');
+      }
+      const daRevisao = Number(ctx.corpo.horas_revisao);
+      if (!Number.isFinite(daRevisao) || daRevisao < 0) throw erro(400, 'Horas de correção inválidas.');
+      if (daRevisao > 200) throw erro(400, 'Máximo de 200 horas de correção.');
+
+      const analise = typeof ctx.corpo.texto === 'string' ? ctx.corpo.texto : atual.texto;
+      if (analise.length > LIMITE_TEXTO) throw erro(400, 'Texto grande demais.');
+
+      // O que o professor pediu continua no registro depois do reenvio: é o que
+      // ele lê para conferir se foi atendido.
+      // Anexos novos substituem os antigos; sem anexo novo, ficam os que havia.
+      const anexo = ctx.corpo.arquivo
+        ? await guardarArquivo(bd, opcoes.arquivos, usuario, ctx.corpo.arquivo)
+        : null;
+      const daAnalise = ctx.corpo.arquivo_analise
+        ? await guardarArquivo(bd, opcoes.arquivos, usuario, ctx.corpo.arquivo_analise)
+        : null;
+
+      const horas = Math.round((atual.horas + daRevisao) * 100) / 100;
+      const acumulado = Math.round(((atual.horas_revisao ?? 0) + daRevisao) * 100) / 100;
+
+      await bd.run(
+        `UPDATE atividades
+            SET horas = ?, horas_revisao = ?, texto = ?,
+                arquivo_nome = ?, arquivo_id = ?, analise_arquivo_id = ?,
+                status = 'pendente', horas_aprovadas = NULL,
+                analisado_por = NULL, analisado_em = NULL,
+                validado = 0, validado_por = NULL, validado_em = NULL, atualizado_em = ?
+          WHERE id = ?`,
+        horas, acumulado, analise,
+        anexo ? anexo.nome : atual.arquivo_nome,
+        anexo ? anexo.id : atual.arquivo_id,
+        daAnalise ? daAnalise.id : atual.analise_arquivo_id,
+        new Date().toISOString(), atual.id,
+      );
+
+      await registrar(bd, ctx, 'atividade', atual.id, 'reenviada',
+        `Aluno reenviou depois da correção: ${daRevisao} h de correção somadas, `
+        + `total declarado agora ${horas} h.`,
+        { horas_revisao: daRevisao, antes: atual.horas, depois: horas });
+
+      avisarPorEmail(
+        opcoes,
+        await quemValidaAsHoras(bd, usuario.id),
+        `Correção reenviada: ${atual.titulo} — ${usuario.nome}`,
+        `${usuario.nome} corrigiu e reenviou para validação.\n`
+        + (atual.motivo ? `\nVocê tinha pedido: ${atual.motivo}\n` : '')
+        + `\nTempo de correção informado: ${daRevisao} h`
+        + `\nTotal declarado agora: ${horas} h`
+        + (analise ? `\n\nAnálise do aluno:\n${analise}` : '')
+        + linkDoSistema(ctx),
+        anexosDoPedido(ctx.corpo, ['arquivo_analise', 'arquivo']),
+      );
+
+      return {
+        corpo: {
+          atividade: await buscarAtividade(bd, atual.id),
+          resumo: await resumo(bd, usuario.id),
+        },
+      };
     }],
 
     ['DELETE', /^\/api\/atividades\/(\d+)$/, async (ctx) => {

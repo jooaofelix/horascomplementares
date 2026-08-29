@@ -233,7 +233,22 @@ npx wrangler secret put EMAIL_DE
 `EMAIL_URL` troca o serviço (qualquer um que aceite `{from, to, subject, text, attachments}`), e
 `EMAIL_RESPONDER_PARA` define o endereço de resposta.
 
-## Quando o professor pede revisão
+## Quando o professor pede correção
+
+**Na hora complementar**, devolver para correção fecha a edição: o cartão do aluno troca o botão
+*Editar* por um bloco **"Reenviar para validação"**, que pede três coisas — quantas horas ele levou
+corrigindo (obrigatório), a análise corrigida e, se quiser, outro arquivo. Ao reenviar:
+
+- as horas da correção **somam** à carga declarada (6 h + 1,5 h = 7,5 h) e ficam guardadas à parte,
+  somando de novo a cada nova volta;
+- a atividade volta para a fila como pendente, e o professor recebe o e-mail com o tempo informado,
+  o total novo e os arquivos;
+- o que ele tinha pedido continua no cartão, agora como *"O professor havia pedido"*, para ele
+  conferir se foi atendido.
+
+Editar uma atividade devolvida deixa de ser possível — a API responde 409 apontando o caminho certo.
+
+## Quando o professor pede revisão de uma tarefa
 
 Ao devolver uma entrega, o professor escreve o que falta. Do lado do aluno aparece um campo a mais:
 **"quanto tempo levou para refazer"**. Esse tempo se soma à carga da tarefa — refazer dá trabalho, e

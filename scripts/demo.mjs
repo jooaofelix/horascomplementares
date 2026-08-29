@@ -109,7 +109,21 @@ if (alvo) {
 
   const bd = bancoLocal(CAMINHO);
   servidor = criarServidor(bd, { arquivos: armazenamentoD1(bd) });
-  await new Promise((r) => servidor.listen(PORTA, r));
+  await new Promise((pronto, falhou) => {
+    servidor.once('error', falhou);
+    servidor.listen(PORTA, pronto);
+  }).catch((e) => {
+    // Porta ocupada é o tropeço mais comum: quase sempre é a demonstração
+    // anterior que ficou de pé.
+    console.error(
+      e.code === 'EADDRINUSE'
+        ? `\nA porta ${PORTA} já está em uso — provavelmente por outra demonstração aberta.\n`
+          + `Feche a outra janela do terminal (Ctrl+C) ou escolha outra porta:\n`
+          + `  PORT=3001 npm run demo\n`
+        : `\nNão consegui subir o servidor: ${e.message}\n`,
+    );
+    process.exit(1);
+  });
   base = `http://127.0.0.1:${PORTA}`;
 }
 

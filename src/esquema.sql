@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS atividades (
   data_atividade TEXT NOT NULL,
   data_fim       TEXT,
   horas          REAL NOT NULL,
+  horas_revisao  REAL,
   comprovante    TEXT,
   texto          TEXT NOT NULL DEFAULT '',
   arquivo_nome   TEXT,

@@ -1231,17 +1231,24 @@ test('a trilha guarda cada passo, e nada é apagado', async () => {
     await admin(`/api/atividades/${id}/analise`, {
       metodo: 'POST', corpo: { status: 'correcao', motivo: 'Falta a assinatura no certificado.' },
     });
-    await ana(`/api/atividades/${id}`, { metodo: 'PUT', corpo: { ...atividadeBase, horas: 8, texto: 'Corrigido.' } });
+    // Devolvida, ela não é mais editada: o aluno reenvia.
+    const edicao = await ana(`/api/atividades/${id}`, { metodo: 'PUT', corpo: { ...atividadeBase, horas: 8 } });
+    assert.equal(edicao.status, 409);
+    assert.match(edicao.dados.erro, /Reenviar para validação/);
+    await ana(`/api/atividades/${id}/reenviar`, {
+      metodo: 'POST', corpo: { horas_revisao: 1, texto: 'Corrigido.' },
+    });
     await admin(`/api/atividades/${id}/analise`, {
       metodo: 'POST', corpo: { status: 'aprovado', horas_aprovadas: 5, motivo: 'Aprovado com carga ajustada.' },
     });
 
     const { historico } = (await admin(`/api/atividades/${id}/historico`)).dados;
-    assert.equal(historico.length, 5, 'criada, em análise, correção, edição e aprovação');
-    assert.deepEqual(historico.map((h) => h.acao), ['criada', 'em_analise', 'correcao', 'editada', 'aprovado']);
+    assert.equal(historico.length, 5, 'criada, em análise, correção, reenvio e aprovação');
+    assert.deepEqual(historico.map((h) => h.acao), ['criada', 'em_analise', 'correcao', 'reenviada', 'aprovado']);
     assert.match(historico[2].descricao, /Falta a assinatura/);
+    assert.match(historico[3].descricao, /1 h de correção somadas/);
     assert.match(historico[4].descricao, /5 h/);
-    assert.match(historico[4].descricao, /havia declarado 8/);
+    assert.match(historico[4].descricao, /havia declarado 9/, 'as 8 h mais 1 h de correção');
     assert.equal(historico[0].usuario_nome, 'Ana Ribeiro');
     assert.equal(historico[4].papel, 'admin');
     assert.ok(historico.every((h) => h.criado_em));
@@ -1971,5 +1978,68 @@ test('o tempo que o aluno leva refazendo entra nas horas da tarefa', async () =>
     });
     assert.equal(final.dados.horas_lancadas, 5);
     assert.equal((await ana('/api/eu')).dados.resumo.validado, 5, 'a atividade é a mesma, não duplica');
+  });
+});
+
+test('depois de devolvida, o aluno reenvia com o tempo da correção — e não edita', async () => {
+  await comEmail(async ({ base, email }) => {
+    const admin = await criarProfessor(base);
+    const turma = await criarTurma(admin, 'Manhã');
+    const ana = await criarAluno(base, 'Ana Ribeiro', 'ana@ex.br', turma.codigo);
+
+    const id = (await ana('/api/atividades', {
+      metodo: 'POST', corpo: { ...atividadeBase, horas: 6 },
+    })).dados.atividade.id;
+
+    // Enquanto está na fila normal, editar continua valendo.
+    assert.equal(
+      (await ana(`/api/atividades/${id}`, { metodo: 'PUT', corpo: { ...atividadeBase, horas: 6 } })).status,
+      200,
+    );
+
+    await admin(`/api/atividades/${id}/analise`, {
+      metodo: 'POST', corpo: { status: 'correcao', motivo: 'Falta anexar o certificado.' },
+    });
+
+    // Agora a porta é o reenvio, e ele cobra o tempo da correção.
+    const semHoras = await ana(`/api/atividades/${id}/reenviar`, { metodo: 'POST', corpo: { texto: 'Pronto.' } });
+    assert.equal(semHoras.status, 400);
+    assert.match(semHoras.dados.erro, /quantas horas/);
+
+    const reenviada = await ana(`/api/atividades/${id}/reenviar`, {
+      metodo: 'POST',
+      corpo: { horas_revisao: 2, texto: 'Refeito com o certificado.', arquivo: arquivoExemplo('certificado.pdf') },
+    });
+    assert.equal(reenviada.status, 200, JSON.stringify(reenviada.dados));
+    const depois = reenviada.dados.atividade;
+    assert.equal(depois.status, 'pendente', 'volta para a fila');
+    assert.equal(depois.horas, 8, 'as 6 h declaradas mais as 2 h de correção');
+    assert.equal(depois.horas_revisao, 2);
+    assert.match(depois.motivo, /Falta anexar o certificado/,
+      'o que o professor pediu continua no registro, para ele conferir');
+    assert.ok(depois.arquivo_id, 'o arquivo novo entrou');
+
+    // A professora é avisada, com o tempo de correção no corpo.
+    assert.match(email.enviados.at(-1).assunto, /Correção reenviada.*Ana Ribeiro/);
+    assert.match(email.enviados.at(-1).texto, /Tempo de correção informado: 2 h/);
+    assert.match(email.enviados.at(-1).texto, /Total declarado agora: 8 h/);
+
+    // Reenviar duas vezes soma; e não dá para reenviar o que não foi devolvido.
+    assert.equal((await ana(`/api/atividades/${id}/reenviar`, {
+      metodo: 'POST', corpo: { horas_revisao: 1 },
+    })).status, 409);
+
+    await admin(`/api/atividades/${id}/analise`, {
+      metodo: 'POST', corpo: { status: 'correcao', motivo: 'Mais uma coisa.' },
+    });
+    const segunda = await ana(`/api/atividades/${id}/reenviar`, { metodo: 'POST', corpo: { horas_revisao: 1 } });
+    assert.equal(segunda.dados.atividade.horas, 9);
+    assert.equal(segunda.dados.atividade.horas_revisao, 3, 'o tempo de correção acumula');
+
+    // A atividade de outro aluno segue fora de alcance.
+    const bruno = await criarAluno(base, 'Bruno', 'bruno@ex.br', turma.codigo);
+    assert.equal((await bruno(`/api/atividades/${id}/reenviar`, {
+      metodo: 'POST', corpo: { horas_revisao: 1 },
+    })).status, 403);
   });
 });

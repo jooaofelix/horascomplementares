@@ -292,18 +292,47 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
       ${!a.arquivo_id && a.arquivo_nome
         ? `<p class="sub" style="margin:12px 0 0">Arquivo: ${escapar(a.arquivo_nome)}</p>` : ''}
       ${a.motivo || a.observacao
-        ? `<div class="observacao"><strong>${status === 'reprovado' ? 'Motivo da reprovação' : 'Professor'}:</strong> ${escapar(a.motivo || a.observacao)}</div>`
+        ? `<div class="observacao"><strong>${
+             status === 'reprovado' ? 'Motivo da reprovação'
+             : status === 'correcao' ? 'O professor pediu'
+             : a.horas_revisao ? 'O professor havia pedido'
+             : 'Professor'}:</strong> ${escapar(a.motivo || a.observacao)}</div>`
         : ''}
       ${analise}
       <details style="margin-top:10px"><summary data-historico="${a.id}">Ver histórico da solicitação</summary>
         <div data-historico-de="${a.id}" class="sub" style="margin-top:10px">carregando…</div>
       </details>
-      ${comEdicao
-        ? `<div class="acoes" style="margin-top:16px">
-             <button class="secundario mini" data-editar="${a.id}">Editar</button>
-             <button class="perigo mini" data-excluir="${a.id}">Excluir</button>
+      ${comEdicao && status === 'correcao'
+        ? `<div class="bloco" style="margin:16px 0 0">
+             <h3>Reenviar para validação</h3>
+             <p class="explicacao">
+               Depois de devolvida, a atividade não é editada: você corrige, diz quanto tempo isso
+               levou e reenvia. Esse tempo entra nas suas horas.
+             </p>
+             <div class="campo">
+               <label>Quantas horas você levou corrigindo</label>
+               <input type="number" min="0" step="0.5" inputmode="decimal" data-reenvio-horas="${a.id}" placeholder="Ex.: 1,5">
+             </div>
+             <div class="campo">
+               <label>Sua análise corrigida <span class="opcional">(deixe como está se não mudou)</span></label>
+               <textarea data-reenvio-texto="${a.id}" style="min-height:110px">${escapar(a.texto || '')}</textarea>
+             </div>
+             <div class="campo">
+               <label>Trocar o arquivo <span class="opcional">(opcional)</span></label>
+               <input type="file" data-reenvio-arquivo="${a.id}"
+                      accept=".pdf,.pptx,.ppt,.odp,.docx,.doc,.odt,.xlsx,.xls,.jpg,.jpeg,.png,.webp,.heic,.txt,.md,.csv">
+             </div>
+             <div class="acoes">
+               <button class="mini" data-reenviar="${a.id}">Reenviar para validação</button>
+               <button class="perigo mini" data-excluir="${a.id}">Excluir</button>
+             </div>
            </div>`
-        : ''}
+        : comEdicao
+          ? `<div class="acoes" style="margin-top:16px">
+               <button class="secundario mini" data-editar="${a.id}">Editar</button>
+               <button class="perigo mini" data-excluir="${a.id}">Excluir</button>
+             </div>`
+          : ''}
       ${comValidacao
         ? `<div style="margin-top:16px">
              <div class="linha">
@@ -412,6 +441,30 @@ $('#form-atividade').onsubmit = async (e) => {
 $('#lista-aluno').addEventListener('click', async (e) => {
   const idEditar = e.target.dataset.editar;
   const idExcluir = e.target.dataset.excluir;
+  const idReenviar = e.target.dataset.reenviar;
+
+  if (idReenviar) {
+    const horasCorrecao = $(`[data-reenvio-horas="${idReenviar}"]`).value;
+    if (!horasCorrecao) return avisar('Diga quantas horas você levou corrigindo.');
+    e.target.disabled = true;
+    try {
+      await api(`/api/atividades/${idReenviar}/reenviar`, {
+        metodo: 'POST',
+        corpo: {
+          horas_revisao: horasCorrecao,
+          texto: $(`[data-reenvio-texto="${idReenviar}"]`).value,
+          arquivo_analise: await lerParaEnvio($(`[data-reenvio-arquivo="${idReenviar}"]`)),
+        },
+      });
+      await carregarAtividades();
+      avisar('Reenviado. A professora recebeu o aviso e vai validar.', 'ok');
+    } catch (err) {
+      falhar(err);
+    } finally {
+      e.target.disabled = false;
+    }
+    return;
+  }
 
   if (idEditar) {
     const a = estado.atividades.find((x) => String(x.id) === idEditar);

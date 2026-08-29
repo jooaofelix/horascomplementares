@@ -138,6 +138,19 @@ npm run banco:backup   # se houver algo de verdade lá dentro
 npx wrangler d1 execute horas-complementares --remote --file=scripts/limpar.sql
 ```
 
+## Manuais em PDF
+
+Dois guias prontos para imprimir ou mandar por e-mail, com imagens das telas de verdade:
+
+- **`docs/manual-professor.pdf`** — entrar, criar a turma e passar o código, publicar aula, corrigir
+  entregas, validar horas, e as perguntas que sempre aparecem;
+- **`docs/manual-aluno.pdf`** — criar a conta com o código, entregar tarefa, lançar hora
+  complementar com comprovante, reenviar depois de uma correção, acompanhar o progresso.
+
+Mudou a tela? `npm run manuais` refaz os dois a partir de `docs/imagens-manual/` — as imagens são
+recortes capturados do sistema rodando, então o manual não descreve uma tela que não existe mais.
+(Precisa de `pip install reportlab pillow`.)
+
 ## Papéis
 
 | Papel | Enxerga | Faz |

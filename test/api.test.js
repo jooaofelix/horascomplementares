@@ -1919,6 +1919,9 @@ test('o professor recebe e-mail a cada envio do aluno', async () => {
     assert.equal(email.enviados.length, 2);
     assert.match(email.enviados[1].assunto, /Nova entrega: Relatório — Ana Ribeiro/);
 
+    // A tela sabe dizer se o envio está ligado neste servidor.
+    assert.equal((await admin('/api/eu')).dados.email_configurado, true);
+
     // Quem desligou o aviso em "Meus dados" para de receber.
     await admin('/api/eu', { metodo: 'PUT', corpo: { nome: 'Profa. Marina', avisar_email: false } });
     await ana('/api/atividades', { metodo: 'POST', corpo: { ...atividadeBase, titulo: 'Outra' } });

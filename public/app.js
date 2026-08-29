@@ -1915,6 +1915,12 @@ async function iniciar() {
     $('#cfg-nome').value = u.nome;
     $('#cfg-instituicao').value = u.instituicao || '';
     $('#cfg-avisar').checked = u.avisar_email !== 0;
+    // Dizer com todas as letras se o envio está ligado neste servidor.
+    $('#estado-email').innerHTML = dados.email_configurado
+      ? `✅ O envio de e-mail está <strong>ligado</strong> neste sistema (as mensagens saem de ${
+          escapar(dados.email_de || '')}).`
+      : '⚠️ O envio de e-mail ainda <strong>não foi ligado</strong> neste sistema: nenhum aviso sai. '
+        + 'Quem publica precisa configurar EMAIL_CHAVE e EMAIL_DE (veja o README).';
     estado.turmas = dados.turmas || [];
     $('#config-botao-convites').classList.toggle('oculto', !u.pode_convidar);
     $('#config-botao-integracao').classList.remove('oculto');

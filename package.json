@@ -15,7 +15,8 @@
     "deploy": "wrangler deploy",
     "banco:ver": "node scripts/ver-banco.mjs",
     "banco:backup": "wrangler d1 export horas-complementares --remote --output=backup-horas.sql",
-    "demo": "node --disable-warning=ExperimentalWarning scripts/demo.mjs"
+    "demo": "node --disable-warning=ExperimentalWarning scripts/demo.mjs",
+    "manuais": "node --disable-warning=ExperimentalWarning scripts/manuais.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

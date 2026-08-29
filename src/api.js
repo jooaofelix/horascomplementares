@@ -1302,6 +1302,10 @@ export function criarRotas(bd, opcoes = {}) {
       if (usuario && PAPEIS_EQUIPE.includes(usuario.papel)) {
         corpo.turmas = await turmasVisiveis(bd, usuario);
         corpo.cursos = await listarCursos(bd);
+        // A tela precisa poder dizer se este servidor sabe mandar e-mail —
+        // senão o professor fica esperando um aviso que nunca vai sair.
+        corpo.email_configurado = Boolean(opcoes.email?.ativo);
+        corpo.email_de = opcoes.email?.ativo ? opcoes.email.de : null;
       }
       return { corpo };
     }],

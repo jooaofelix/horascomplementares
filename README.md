@@ -149,6 +149,16 @@ Dois guias prontos para imprimir ou mandar por e-mail, com imagens das telas de 
 - **`docs/manual-aluno.pdf`** — criar a conta com o código, entregar tarefa, lançar hora
   complementar com comprovante, reenviar depois de uma correção, acompanhar o progresso.
 
+Os dois trazem, logo na capa, o endereço do sistema numa caixa em destaque — é o que falta quando
+alguém recebe o guia e não sabe onde clicar. Para gerar com outro endereço:
+
+```bash
+npm run manuais -- --endereco=https://postai.suafaculdade.br
+```
+
+E `docs/mensagens-para-enviar.md` tem os textos prontos para mandar à professora e ao grupo da
+turma, com o endereço e o espaço do código.
+
 Mudou a tela? `npm run manuais` refaz os dois a partir de `docs/imagens-manual/` — as imagens são
 recortes capturados do sistema rodando, então o manual não descreve uma tela que não existe mais.
 (Precisa de `pip install reportlab pillow`.)

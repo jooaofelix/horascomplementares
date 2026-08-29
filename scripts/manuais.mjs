@@ -13,6 +13,13 @@ const RAIZ = process.cwd();
 const SAIDA = path.join(RAIZ, 'docs');
 const IMAGENS = path.join(SAIDA, 'imagens-manual');
 
+// O endereço entra numa caixa na primeira página: sem ele, o manual manda a
+// pessoa "abrir o endereço que passaram" e ela não tem onde clicar.
+//   npm run manuais -- --endereco=https://postai.suafaculdade.br
+const argumento = process.argv.slice(2).find((a) => a.startsWith('--endereco='));
+const ENDERECO = (argumento ? argumento.slice(11) : process.env.ENDERECO
+  || 'https://horas-complementares.jvctrfelix.workers.dev').replace(/\/$/, '');
+
 const CORES = {
   aulas: '#2f6b52',
   horas: '#9a6212',
@@ -25,6 +32,7 @@ const professor = {
   titulo: 'PostAí',
   subtitulo: 'Guia rápido do professor',
   cor: CORES.aulas,
+  endereco: ENDERECO,
   abertura:
     'Este guia tem tudo o que você precisa para usar o sistema. São seis passos, e você não '
     + 'precisa saber nada de computador além de clicar e escrever. Qualquer coisa que der errado '
@@ -33,8 +41,8 @@ const professor = {
     {
       titulo: 'Entrar no sistema',
       texto: [
-        'Abra o endereço do sistema no navegador (Safari, Chrome, o que você já usa). Funciona '
-        + 'igual no computador e no celular.',
+        'Abra o endereço da caixa acima no navegador (Safari, Chrome, o que você já usa). '
+        + 'Funciona igual no computador e no celular.',
         'Na primeira vez, toque em "Criar conta", escolha "Sou professor(a)" e informe o código '
         + 'de convite que a coordenação te passou. Depois disso é só e-mail e senha.',
       ],
@@ -128,6 +136,7 @@ const aluno = {
   titulo: 'PostAí',
   subtitulo: 'Guia rápido do aluno',
   cor: CORES.alunos,
+  endereco: ENDERECO,
   abertura:
     'Aqui ficam as aulas, os materiais e as tarefas da sua turma — e também as suas horas '
     + 'complementares. Tudo pelo celular, sem instalar nada.',
@@ -135,7 +144,7 @@ const aluno = {
     {
       titulo: 'Criar a sua conta',
       texto: [
-        'Abra o endereço que o professor passou e toque em "Criar conta". Escolha "Sou aluno(a)".',
+        'Abra o endereço da caixa acima e toque em "Criar conta". Escolha "Sou aluno(a)".',
         'Digite o código de 6 letras da turma. A tela mostra na hora em qual turma você está '
         + 'entrando e quais são as matérias e os professores — confira antes de continuar.',
         'Complete com seu nome, e-mail, senha e matrícula.',
@@ -335,6 +344,26 @@ doc.addPageTemplates([
 
 # A faixa colorida com o título é só da primeira página.
 historia = [NextPageTemplate('normal'), Spacer(1, 6 * mm), Paragraph(dados['abertura'], abertura)]
+
+if dados.get('endereco'):
+    endereco_rotulo = ParagraphStyle('endereco_rotulo', fontName='Helvetica-Bold', fontSize=11,
+                                     leading=15, textColor=cinza)
+    endereco_valor = ParagraphStyle('endereco_valor', fontName='Helvetica-Bold', fontSize=15,
+                                    leading=20, textColor=cor)
+    caixa = Table([[Paragraph('O ENDEREÇO DO SISTEMA', endereco_rotulo)],
+                   [Paragraph(dados['endereco'], endereco_valor)],
+                   [Paragraph('Abra no navegador do celular ou do computador e guarde nos favoritos.',
+                              dica_estilo)]],
+                  colWidths=[UTIL])
+    caixa.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), fundo_dica),
+        ('BOX', (0, 0), (-1, -1), 1.2, cor),
+        ('LEFTPADDING', (0, 0), (-1, -1), 16),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 16),
+        ('TOPPADDING', (0, 0), (0, 0), 14),
+        ('BOTTOMPADDING', (0, -1), (-1, -1), 14),
+    ]))
+    historia += [caixa, Spacer(1, 8 * mm)]
 
 for i, passo in enumerate(dados['passos'], start=1):
     bloco = [Paragraph(str(i) + '. ' + passo['titulo'], passo_num)]

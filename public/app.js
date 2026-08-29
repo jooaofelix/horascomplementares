@@ -101,15 +101,16 @@ $$('.escolha button').forEach((botao) => {
     if (!aluno && !$('#campo-convite').dataset.obrigatorio) {
       $('#campo-convite').classList.add('oculto'); // primeira conta da instalação
     }
-    $('#btn-criar-conta').textContent = aluno ? 'Entrar na turma' : 'Criar minha conta';
+    $('#btn-criar-conta').textContent = 'Criar minha conta';
   };
 });
 
 // Confere o código enquanto o aluno digita: ele vê em qual turma vai entrar.
+// Vale no cadastro e no cartão de quem criou a conta sem código.
 let conferindo;
-$('#cad-codigo-turma').addEventListener('input', (e) => {
+const conferirCodigo = (campo, alvo) => $(campo).addEventListener('input', (e) => {
   const codigo = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const caixa = $('#confirmacao-turma');
+  const caixa = $(alvo);
   clearTimeout(conferindo);
   if (codigo.length < 6) return caixa.classList.add('oculto');
   conferindo = setTimeout(async () => {
@@ -129,6 +130,22 @@ $('#cad-codigo-turma').addEventListener('input', (e) => {
     }
   }, 400);
 });
+
+conferirCodigo('#cad-codigo-turma', '#confirmacao-turma');
+conferirCodigo('#entrar-codigo-aluno', '#confirmacao-turma-aluno');
+
+// Entrar na turma depois de já ter conta.
+$('#btn-entrar-turma-aluno').onclick = async () => {
+  const codigo = $('#entrar-codigo-aluno').value.trim();
+  if (!codigo) return avisar('Digite o código que o professor passou.');
+  try {
+    await api('/api/eu', { metodo: 'PUT', corpo: { nome: estado.usuario.nome, codigo_turma: codigo } });
+    avisar('Pronto, você entrou na turma.', 'ok');
+    await iniciar();
+  } catch (err) {
+    falhar(err);
+  }
+};
 
 $('#form-login').onsubmit = async (e) => {
   e.preventDefault();
@@ -488,7 +505,8 @@ const formulario = { arquivoNome: null, analiseArquivo: null };
 
 function abrirFormulario(abrir = true) {
   $('#cartao-formulario').classList.toggle('oculto', !abrir);
-  $('#btn-abrir-form').classList.toggle('oculto', abrir);
+  // Quem ainda não está numa turma que gere horas não tem o que lançar.
+  $('#btn-abrir-form').classList.toggle('oculto', abrir || estado.contaHoras === false);
   if (abrir) $('#cartao-formulario').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -2063,8 +2081,13 @@ async function iniciar() {
       .join('');
     $('#meus-nome').value = u.nome;
     $('#meus-matricula').value = u.matricula || '';
+    // Sem turma, a única coisa que interessa é entrar numa: o resto da tela
+    // some para não confundir.
+    const semTurma = !u.turma_id;
+    $('#cartao-sem-turma').classList.toggle('oculto', !semTurma);
+
     // Disciplina comum não gera hora complementar: a seção some para o aluno.
-    const comHoras = dados.conta_horas !== false;
+    const comHoras = dados.conta_horas !== false && !semTurma;
     for (const id of ['#cartao-horas-aluno', '#btn-abrir-form', '#cartao-atividades-aluno']) {
       $(id)?.classList.toggle('oculto', !comHoras);
     }

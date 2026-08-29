@@ -307,7 +307,11 @@ matéria — a dele. Cada turma ganha um código de 6 caracteres (ex.: `9PFQ3K`)
 para não confundir na hora de ditar em sala. O botão **Copiar convite** copia o endereço do sistema
 junto com o código, pronto para colar no grupo da turma.
 
-O mesmo código serve para as duas pontas: o **aluno** o usa ao criar a conta — antes de confirmar, a
+Para o aluno o código é **opcional**: ele cria a conta na hora, e se ainda não tem o código a
+primeira tela dele é um cartão **"Entre na sua turma"** com o campo esperando. Nada de mural nem de
+horas aparece antes disso — a tela não tem para onde errar.
+
+O mesmo código serve para as duas pontas: o **aluno** o usa ao criar a conta (ou depois) — antes de confirmar, a
 tela lista a turma e todas as matérias com seus professores — e o **professor** o usa para abrir a
 matéria dele naquela sala. Se o aluno errar de turma, ele mesmo corrige em *Seus dados* com o código
 certo.
@@ -317,7 +321,8 @@ mural, a lista de alunos, a fila de validação e a planilha exportada.
 
 ## Contas
 
-- **Aluno**: escolhe *Sou aluno(a)* na tela de cadastro e informa o código da turma.
+- **Aluno**: escolhe *Sou aluno(a)* na tela de cadastro. O código da turma é opcional — sem ele a
+  conta nasce igual, e a primeira tela pede o código quando ele tiver.
 - **Professor**: escolhe *Sou professor(a)* e informa um **código de convite**.
 
 O primeiro professor de uma instalação nova entra sem convite — não haveria quem o convidasse — e é

@@ -959,13 +959,16 @@ export function criarRotas(bd, opcoes = {}) {
       let podeConvidar = 0;
 
       if (papel === 'aluno') {
+        // O código da turma é opcional: o aluno cria a conta agora e entra na
+        // turma quando tiver o código. Sem turma, ele só não vê mural nem horas.
         const codigo = normalizarCodigo(ctx.corpo.codigo_turma);
-        if (!codigo) throw erro(400, 'Informe o código da turma que o professor passou.');
-        // O curso vem junto da turma: é ele que define a carga obrigatória e os
-        // limites por categoria do aluno.
-        const turma = await turmaPorCodigo(bd, codigo);
-        turmaId = turma.id;
-        cursoId = turma.curso_id ?? null;
+        if (codigo) {
+          // O curso vem junto da turma: é ele que define a carga obrigatória e
+          // os limites por categoria do aluno.
+          const turma = await turmaPorCodigo(bd, codigo);
+          turmaId = turma.id;
+          cursoId = turma.curso_id ?? null;
+        }
       } else {
         // A primeira conta de equipe da faculdade entra sem convite e já como
         // administradora — não haveria quem a convidasse. Daí em diante, só com

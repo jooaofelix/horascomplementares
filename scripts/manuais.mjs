@@ -145,9 +145,11 @@ const aluno = {
       titulo: 'Criar a sua conta',
       texto: [
         'Abra o endereço da caixa acima e toque em "Criar conta". Escolha "Sou aluno(a)".',
-        'Digite o código de 6 letras da turma. A tela mostra na hora em qual turma você está '
-        + 'entrando e quais são as matérias e os professores — confira antes de continuar.',
-        'Complete com seu nome, e-mail, senha e matrícula.',
+        'Preencha nome, e-mail, senha e matrícula. Só isso já cria a sua conta.',
+        'Se o professor já passou o código de 6 letras da turma, digite ali também — a tela mostra '
+        + 'na hora em qual turma você entra e quem são os professores. Ainda não tem o código? '
+        + 'Crie a conta assim mesmo: na primeira tela vai aparecer "Entre na sua turma", e você '
+        + 'digita o código quando ele passar.',
       ],
       imagem: 'aluno-cadastro.png',
       dica: 'Errou de turma? Dá para corrigir depois na engrenagem (o desenho de roda dentada, no alto da tela), em "Seus dados".',

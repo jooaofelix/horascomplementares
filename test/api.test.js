@@ -152,12 +152,21 @@ test('código minúsculo ou com espaços funciona; código errado é recusado', 
     });
     assert.equal(errado.status, 404);
 
+    // Sem código, a conta nasce assim mesmo: o aluno entra na turma depois.
     const semCodigo = await c('/api/cadastro', {
       metodo: 'POST',
       corpo: { papel: 'aluno', nome: 'Y', email: 'y@exemplo.br', senha: 'senha123' },
     });
-    assert.equal(semCodigo.status, 400);
-    assert.match(semCodigo.dados.erro, /código da turma/i);
+    assert.equal(semCodigo.status, 200, JSON.stringify(semCodigo.dados));
+    const solto = await c('/api/eu');
+    assert.equal(solto.dados.usuario.turma_id, null, 'ainda sem turma');
+    assert.equal(solto.dados.usuario.turma_nome, null);
+    assert.deepEqual(solto.dados.materias, [], 'e sem matéria nenhuma');
+
+    // E entra na turma quando tiver o código.
+    const entrou = await c('/api/eu', { metodo: 'PUT', corpo: { nome: 'Y', codigo_turma: turma.codigo } });
+    assert.equal(entrou.status, 200, JSON.stringify(entrou.dados));
+    assert.equal((await c('/api/eu')).dados.usuario.turma_nome, 'Manhã');
   });
 });
 

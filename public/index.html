@@ -45,10 +45,13 @@
 
         <div id="campos-aluno">
           <div class="campo">
-            <label for="cad-codigo-turma">Código da turma</label>
+            <label for="cad-codigo-turma">Código da turma <span class="opcional">(se você já tem)</span></label>
             <input id="cad-codigo-turma" autocapitalize="characters" autocomplete="off"
                    maxlength="12" placeholder="Ex.: K7PQ2M" style="text-transform:uppercase;letter-spacing:.1em">
-            <div class="ajuda">O professor passa esse código na aula.</div>
+            <div class="ajuda">
+              O professor passa esse código na aula. Ainda não tem? Crie a conta assim mesmo e
+              entre na turma depois.
+            </div>
           </div>
           <div id="confirmacao-turma" class="confirmacao-turma oculto"></div>
         </div>
@@ -103,6 +106,24 @@
 
   <!-- ---- ALUNO ---- -->
   <div id="painel-aluno" class="oculto">
+    <!-- Conta criada sem código: é a primeira coisa que ele vê, e a única que
+         importa até entrar numa turma. -->
+    <div class="cartao oculto" id="cartao-sem-turma" data-area="turmas">
+      <span class="etiqueta">Falta um passo</span>
+      <h2>Entre na sua turma</h2>
+      <p class="explicacao">
+        Sua conta está criada. Para ver as aulas, as tarefas e lançar horas, digite o código de
+        6 letras que o professor passa na aula.
+      </p>
+      <div class="campo">
+        <label for="entrar-codigo-aluno">Código da turma</label>
+        <input id="entrar-codigo-aluno" autocapitalize="characters" autocomplete="off" maxlength="12"
+               placeholder="Ex.: K7PQ2M" style="text-transform:uppercase;letter-spacing:.1em">
+      </div>
+      <div id="confirmacao-turma-aluno" class="confirmacao-turma oculto"></div>
+      <button id="btn-entrar-turma-aluno">Entrar na turma</button>
+    </div>
+
     <div class="cartao oculto" id="cartao-mural-aluno" data-area="aulas">
       <h2>Aulas e tarefas</h2>
       <p class="explicacao">O que os seus professores publicaram, matéria por matéria. Toque para abrir o material ou entregar.</p>

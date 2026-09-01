@@ -340,6 +340,33 @@ npx wrangler d1 execute horas-complementares --remote \
 
 Um professor nunca enxerga as matérias, os alunos nem os convites de quem não divide turma com ele.
 
+### Trocar o papel de uma conta
+
+Em **Configurações → Pessoas** o admin muda o papel de qualquer um por um menu. Ao rebaixar alguém a
+aluno, o sistema desliga junto o que era de quem dá aula: revoga as chaves de integração da pessoa
+(elas continuariam mandando horas para as salas antigas), tira a coordenação, apaga a instituição e
+solta as salas e matérias dela — que ficam sem dono até o admin entregá-las a outro professor.
+
+O que a tela não faz é rebaixar **o próprio admin logado**: ninguém tira o próprio acesso de
+administrador. Para esse caso, e para quando não há admin à mão, existe o script:
+
+```bash
+npm run papel -- jvctrfelix@gmail.com aluno                 # só mostra o que faria
+npm run papel -- jvctrfelix@gmail.com aluno --aplicar       # muda de verdade
+npm run papel -- jvctrfelix@gmail.com aluno --turma ABC123 --aplicar
+```
+
+Sem `--aplicar` é ensaio: ele lista passo a passo o que vai mudar e não escreve nada. `--turma` já
+coloca o novo aluno numa sala (sem sala ele entra e não vê mural nem horas — dá para entrar depois
+pelo código, na tela de Perfil). `--local` mexe no banco do seu computador em vez do publicado.
+
+Se a conta for a última admin, o script para e explica: sem admin ninguém abre Pessoas, cursos nem
+categorias. Passe `--forcar` para seguir mesmo assim. Numa instalação que ficou sem nenhuma conta de
+equipe há saída: a próxima conta de professor criada entra sem convite e já como admin, que é a regra
+da primeira conta.
+
+A troca fica registrada na auditoria, e quem estiver com a tela aberta precisa sair e entrar de novo.
+
 ## Aulas, materiais e tarefas
 
 Além do lançamento avulso de horas, o professor tem um mural por matéria:
@@ -525,6 +552,7 @@ src/sqlite.js      banco local + adaptador
 src/d1.js          adaptador do Cloudflare D1
 src/esquema.sql    esquema único, usado pelos dois bancos
 migracoes/         alterações de banco para instalações que já existem
+scripts/           utilidades de linha de comando (migrar, papel, demo, manuais)
 public/            interface (HTML, CSS e JavaScript sem framework)
 test/api.test.js   testes de ponta a ponta da API
 data/horas.db      banco local (criado ao rodar; fora do Git)

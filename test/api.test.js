@@ -739,6 +739,35 @@ test('chave inválida, revogada ou de outro professor não importa nada', async 
   });
 });
 
+test('rebaixar a aluno desliga a chave, a coordenação e solta as salas', async () => {
+  await comAmbiente(async ({ base }) => {
+    const admin = await criarProfessor(base);
+    const curso = await criarCurso(admin, 'Psicologia', 100);
+    const carlos = await criarProfessorConvidado(base, admin, 'Prof. Carlos', 'carlos@exemplo.br');
+    const turma = await criarTurma(carlos, 'Noite');
+    const chave = await criarChave(carlos, 'Sistema do Carlos');
+    const carlosId = (await admin('/api/usuarios')).dados.usuarios.find((u) => u.email === 'carlos@exemplo.br').id;
+    await admin(`/api/cursos/${curso.id}/coordenadores`, { metodo: 'POST', corpo: { usuario_id: carlosId } });
+    assert.equal((await carlos('/api/eu')).dados.usuario.papel, 'coordenador');
+
+    const r = await admin(`/api/usuarios/${carlosId}`, { metodo: 'PUT', corpo: { papel: 'aluno' } });
+    assert.equal(r.status, 200, JSON.stringify(r.dados));
+    assert.deepEqual(r.dados.soltas, { turmas: 1, materias: 1 }, 'a sala nasce com uma matéria');
+
+    const eu = await carlos('/api/eu');
+    assert.equal(eu.dados.usuario.papel, 'aluno');
+    assert.equal(eu.dados.usuario.instituicao, null);
+    // A chave olha só a linha dela: sem revogar, ela seguiria mandando horas.
+    assert.equal((await integracao(base, chave)(loteBase(turma.codigo))).status, 401);
+    assert.equal((await carlos('/api/chaves')).status, 403);
+    assert.equal((await carlos('/api/convites', { metodo: 'POST', corpo: {} })).status, 403);
+
+    // A sala continua de pé, sem dono, e o admin ainda a enxerga.
+    const salas = (await admin('/api/eu')).dados.turmas;
+    assert.equal(salas.find((t) => t.nome === 'Noite').professor_id, null);
+  });
+});
+
 test('aluno não cria chaves de integração', async () => {
   await comAmbiente(async ({ base }) => {
     const professor = await criarProfessor(base);

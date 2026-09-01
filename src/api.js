@@ -1857,7 +1857,28 @@ export function criarRotas(bd, opcoes = {}) {
         texto(ctx.corpo.matricula ?? alvo.matricula, 'a matrícula', { obrigatorio: false, max: 40 }) || null,
         id,
       );
-      return { corpo: { ok: true } };
+
+      // Virar aluno não desliga sozinho o que era de quem dá aula. A chave de
+      // integração é a mais séria: quem a confere olha só a linha da chave, e
+      // ela seguiria mandando horas para as salas antigas. Sala e matéria
+      // ficam sem dono — melhor um espaço vazio do que um aluno assinando
+      // como professor no mural da turma.
+      let soltas = null;
+      if (papel === 'aluno' && PAPEIS_EQUIPE.includes(alvo.papel)) {
+        const agora = new Date().toISOString();
+        await bd.run(
+          'UPDATE chaves_api SET revogada_em = ? WHERE professor_id = ? AND revogada_em IS NULL',
+          agora, id,
+        );
+        await bd.run('DELETE FROM coordenacoes WHERE usuario_id = ?', id);
+        await bd.run('UPDATE usuarios SET instituicao = NULL, pode_convidar = 0 WHERE id = ?', id);
+        const turmas = await bd.run('UPDATE turmas SET professor_id = NULL WHERE professor_id = ?', id);
+        const materias = await bd.run('UPDATE materias SET professor_id = NULL WHERE professor_id = ?', id);
+        soltas = { turmas: turmas.mudancas, materias: materias.mudancas };
+        await registrar(bd, ctx, 'usuario', id, 'papel',
+          `${alvo.nome} deixou de ser ${alvo.papel} e virou aluno`, soltas);
+      }
+      return { corpo: { ok: true, soltas } };
     }],
 
     ['GET', /^\/api\/chaves$/, async (ctx) => {

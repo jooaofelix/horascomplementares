@@ -111,6 +111,20 @@ test('promover de volta a professor não mexe no que ficou solto', async () => {
     'chave revogada não ressuscita');
 });
 
+test('quem é promovido a admin ganha o direito de convidar professores', async () => {
+  const { bd, carlos } = await bancoComGente();
+  // Sem isso a aba Convites responde 403 e o admin novo não chama ninguém.
+  await bd.run('UPDATE usuarios SET pode_convidar = 0 WHERE id = ?', carlos);
+
+  const plano = await planoDeMudanca(bd, { email: 'carlos@ex.br', papel: 'admin' });
+  assert.match(plano.passos.map((p) => p.conta).join('\n'), /passa a poder gerar convites/);
+  await aplicarPlano(bd, plano);
+
+  const conta = await bd.get('SELECT papel, pode_convidar FROM usuarios WHERE id = ?', carlos);
+  assert.equal(conta.papel, 'admin');
+  assert.equal(conta.pode_convidar, 1);
+});
+
 test('e-mail desconhecido e papel inventado param antes de qualquer escrita', async () => {
   const { bd } = await bancoComGente();
   await assert.rejects(

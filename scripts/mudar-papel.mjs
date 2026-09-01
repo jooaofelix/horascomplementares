@@ -105,6 +105,16 @@ export async function planoDeMudanca(bd, { email, papel, codigoTurma = null }) {
     });
   }
 
+  // Sem pode_convidar, um admin recém-promovido não consegue chamar professor
+  // nenhum: a aba Convites responde 403. Quem já é admin manda na instalação
+  // inteira, então segurar a porta dele não protege nada.
+  if (papel === 'admin' && !conta.pode_convidar) {
+    passos.push({
+      conta: 'passa a poder gerar convites de professor',
+      sql: ['UPDATE usuarios SET pode_convidar = 1 WHERE id = ?', conta.id],
+    });
+  }
+
   if (turmaNova) {
     passos.push({
       conta: `entra na sala ${turmaNova.nome}${turmaNova.curso_id ? ' (e herda o curso dela)' : ''}`,

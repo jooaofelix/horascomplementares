@@ -51,6 +51,7 @@ const COLUNAS_NOVAS = [
   ['atividades', 'arquivo_id', 'INTEGER REFERENCES arquivos(id) ON DELETE SET NULL'],
   ['atividades', 'analise_arquivo_id', 'INTEGER REFERENCES arquivos(id) ON DELETE SET NULL'],
   ['usuarios', 'avisar_email', 'INTEGER NOT NULL DEFAULT 1'],
+  ['usuarios', 'email_aviso', 'TEXT'],
   ['entregas', 'horas_revisao', 'REAL'],
   ['atividades', 'horas_revisao', 'REAL'],
   ['atividades', 'lida_em', 'TEXT'],

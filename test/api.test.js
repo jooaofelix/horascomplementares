@@ -1938,6 +1938,37 @@ test('o professor recebe e-mail a cada envio do aluno', async () => {
   });
 });
 
+test('o professor pode receber os avisos em outro endereço', async () => {
+  await comEmail(async ({ base, email }) => {
+    const admin = await criarProfessor(base);
+    const sala = (await admin('/api/turmas', {
+      metodo: 'POST', corpo: { nome: '3A', materia: 'Estágio', conta_horas: true },
+    })).dados;
+    const ana = await criarAluno(base, 'Ana Ribeiro', 'ana@ex.br', sala.turma.codigo);
+
+    await admin('/api/eu', {
+      metodo: 'PUT',
+      corpo: { nome: 'Profa. Marina', email_aviso: '  Coordenacao@Exemplo.BR ' },
+    });
+    // Guardado em minúsculas e sem espaços, e a tela devolve o que foi salvo.
+    assert.equal((await admin('/api/eu')).dados.usuario.email_aviso, 'coordenacao@exemplo.br');
+
+    await ana('/api/atividades', { metodo: 'POST', corpo: atividadeBase });
+    assert.deepEqual(email.enviados.at(-1).para, ['coordenacao@exemplo.br'],
+      'o aviso vai para o endereço escolhido, não para o e-mail de login');
+
+    // Campo vazio volta a ser "use o e-mail da minha conta".
+    await admin('/api/eu', { metodo: 'PUT', corpo: { nome: 'Profa. Marina', email_aviso: '' } });
+    await ana('/api/atividades', { metodo: 'POST', corpo: { ...atividadeBase, titulo: 'Outra' } });
+    assert.deepEqual(email.enviados.at(-1).para, ['marina@exemplo.br']);
+
+    // Endereço sem cara de e-mail é recusado na hora de salvar.
+    assert.equal((await admin('/api/eu', {
+      metodo: 'PUT', corpo: { nome: 'Profa. Marina', email_aviso: 'nao é um e-mail' },
+    })).status, 400);
+  });
+});
+
 test('o tempo que o aluno leva refazendo entra nas horas da tarefa', async () => {
   await comEmail(async ({ base, email }) => {
     const admin = await criarProfessor(base);

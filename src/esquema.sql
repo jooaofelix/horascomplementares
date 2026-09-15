@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   instituicao TEXT,
   pode_convidar INTEGER NOT NULL DEFAULT 0,
   avisar_email  INTEGER NOT NULL DEFAULT 1,
+  email_aviso   TEXT,
   pre_cadastrado INTEGER NOT NULL DEFAULT 0,
   curso_id    INTEGER REFERENCES cursos(id) ON DELETE SET NULL,
   semestre    TEXT,

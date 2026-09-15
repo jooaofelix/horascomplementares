@@ -549,7 +549,7 @@ async function importarAtividade(bd, chave, turma, item) {
 // alcança. Quem desligou o aviso não entra na lista.
 const professoresDaTarefa = (bd, tarefaId) =>
   bd.all(
-    `SELECT DISTINCT p.id, p.nome, p.email, p.avisar_email
+    `SELECT DISTINCT p.id, p.nome, COALESCE(p.email_aviso, p.email) AS email, p.avisar_email
        FROM tarefas_materias tm
        JOIN materias m ON m.id = tm.materia_id
        JOIN usuarios p ON p.id = m.professor_id
@@ -561,7 +561,7 @@ const professoresDaTarefa = (bd, tarefaId) =>
 // gera hora complementar; não havendo nenhuma, quem criou a sala.
 const quemValidaAsHoras = (bd, alunoId) =>
   bd.all(
-    `SELECT DISTINCT p.id, p.nome, p.email, p.avisar_email
+    `SELECT DISTINCT p.id, p.nome, COALESCE(p.email_aviso, p.email) AS email, p.avisar_email
        FROM usuarios a
        JOIN turmas t ON t.id = a.turma_id
        LEFT JOIN materias m ON m.turma_id = t.id AND m.conta_horas = 1
@@ -1323,10 +1323,17 @@ export function criarRotas(bd, opcoes = {}) {
       if (PAPEIS_EQUIPE.includes(usuario.papel)) {
         const instituicao =
           texto(ctx.corpo.instituicao, 'a instituição', { obrigatorio: false, max: 160 }) || null;
+        // Endereço de aviso vazio quer dizer "use o da minha conta".
+        const emailAviso = texto(ctx.corpo.email_aviso, 'o e-mail de aviso', { obrigatorio: false, max: 160 })
+          .toLowerCase() || null;
+        if (emailAviso && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailAviso)) {
+          throw erro(400, 'E-mail de aviso inválido.');
+        }
         await bd.run(
-          'UPDATE usuarios SET nome = ?, instituicao = ?, avisar_email = ? WHERE id = ?',
+          'UPDATE usuarios SET nome = ?, instituicao = ?, avisar_email = ?, email_aviso = ? WHERE id = ?',
           nome, instituicao,
           ctx.corpo.avisar_email === undefined ? usuario.avisar_email : (ctx.corpo.avisar_email ? 1 : 0),
+          ctx.corpo.email_aviso === undefined ? usuario.email_aviso : emailAviso,
           usuario.id,
         );
         return { corpo: { ok: true } };

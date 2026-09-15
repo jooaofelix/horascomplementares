@@ -1459,6 +1459,7 @@ $('#btn-salvar-perfil').onclick = async () => {
         nome: $('#cfg-nome').value,
         instituicao: $('#cfg-instituicao').value,
         avisar_email: $('#cfg-avisar').checked,
+        email_aviso: $('#cfg-email-aviso').value,
       },
     });
     avisar('Dados salvos.', 'ok');
@@ -2042,12 +2043,14 @@ async function iniciar() {
     $('#cfg-nome').value = u.nome;
     $('#cfg-instituicao').value = u.instituicao || '';
     $('#cfg-avisar').checked = u.avisar_email !== 0;
+    $('#cfg-email-aviso').value = u.email_aviso || '';
     // Dizer com todas as letras se o envio está ligado neste servidor.
     $('#estado-email').innerHTML = dados.email_configurado
       ? `✅ O envio de e-mail está <strong>ligado</strong> neste sistema (as mensagens saem de ${
           escapar(dados.email_de || '')}).`
-      : '⚠️ O envio de e-mail ainda <strong>não foi ligado</strong> neste sistema: nenhum aviso sai. '
-        + 'Quem publica precisa configurar EMAIL_CHAVE e EMAIL_DE (veja o README).';
+      : '⚠️ Este sistema ainda <strong>não tem uma conta de envio</strong>, então nenhum aviso sai — '
+        + 'nem para o e-mail acima. O que falta não é o endereço de quem recebe, é o de quem envia: '
+        + 'quem publica o sistema precisa configurar EMAIL_CHAVE e EMAIL_DE (veja o README).';
     estado.turmas = dados.turmas || [];
     $('#config-botao-convites').classList.toggle('oculto', !u.pode_convidar);
     $('#config-botao-integracao').classList.remove('oculto');

@@ -245,11 +245,19 @@ mensagem e o arquivo anexado**, para o professor ler sem precisar abrir o sistem
 | Lançou hora complementar | professor das matérias que geram horas na sala dele (senão, quem criou a sala) | ficha completa da atividade, a análise e os arquivos |
 | Entregou (ou refez) uma tarefa | professor de cada matéria que a tarefa alcança | a resposta escrita, o tempo de revisão e o arquivo |
 
-Cada professor liga e desliga isso em **Configurações → Meus dados**. O envio nunca atrasa nem
-derruba a ação do aluno: falha do serviço de e-mail vira linha no log, e no Cloudflare a mensagem
-sai depois da resposta (`waitUntil`).
+Cada professor liga e desliga isso em **Configurações → Meus dados**, e no mesmo lugar pode apontar
+outro endereço em *"Receber os avisos em outro e-mail"* — quem entra no sistema com o e-mail
+pessoal e quer os envios na caixa da faculdade preenche esse campo; vazio, vale o e-mail da conta
+(`COALESCE(email_aviso, email)`). O envio nunca atrasa nem derruba a ação do aluno: falha do
+serviço de e-mail vira linha no log, e no Cloudflare a mensagem sai depois da resposta
+(`waitUntil`).
 
 ### Ligar o envio
+
+São dois endereços diferentes, e só um deles está na tela: o **destinatário** o professor escolhe em
+Configurações, mas o **remetente** é a conta de envio do sistema e só quem publica configura. Sem
+ela nenhum aviso sai, nem para o endereço que o professor digitou — é isso que o aviso amarelo em
+Configurações está dizendo.
 
 Sem configuração, o sistema funciona por inteiro e só não avisa. Para ligar, use qualquer serviço com
 API HTTP (o padrão é o [Resend](https://resend.com), plano gratuito suficiente para uma faculdade):

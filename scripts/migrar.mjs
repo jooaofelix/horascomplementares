@@ -12,10 +12,18 @@ const PASTA = 'migracoes';
 const BANCO = 'horas-complementares';
 const TOLERAVEL = /duplicate column name|already exists|já existe/i;
 
+// O -y é o que impede a migração de parecer travada: sem ele o wrangler para
+// para perguntar "Ok to proceed?" antes de cada arquivo, e como a saída dele
+// vem para cá em vez de ir para a tela, a pergunta fica invisível e o script
+// fica esperando uma resposta que ninguém sabe que precisa dar.
+//
+// A saída continua capturada de propósito: é lendo o erro que sabemos se o
+// arquivo falhou por já ter sido aplicado (e aí refazemos comando a comando)
+// ou por um problema de verdade. Sem stdin, também não há como travar.
 const wrangler = (args) =>
-  execFileSync('npx', ['wrangler', 'd1', 'execute', BANCO, '--remote', ...args], {
+  execFileSync('npx', ['wrangler', 'd1', 'execute', BANCO, '--remote', '-y', ...args], {
     encoding: 'utf8',
-    stdio: ['inherit', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 
 // Divide o arquivo em comandos, deixando os comentários de fora.

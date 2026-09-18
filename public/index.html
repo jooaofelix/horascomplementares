@@ -33,7 +33,44 @@
           <input id="login-senha" type="password" autocomplete="current-password" required>
         </div>
         <button type="submit">Entrar</button>
+        <p class="alternar"><a id="ir-senha">Esqueci minha senha</a></p>
         <p class="alternar">Ainda não tem conta? <a id="ir-cadastro">Criar conta</a></p>
+      </form>
+
+      <!-- esqueci a senha: pedir o código e escolher a senha nova, na mesma tela -->
+      <form id="form-senha" class="oculto">
+        <h2 style="margin:0 0 6px">Trocar a senha</h2>
+        <p class="ajuda" style="margin:0 0 16px">
+          Você precisa de um código de 8 letras para escolher uma senha nova.
+        </p>
+
+        <div class="campo">
+          <label for="senha-email">Seu e-mail</label>
+          <input id="senha-email" type="email" autocomplete="email" inputmode="email" required>
+        </div>
+
+        <div id="senha-passo-pedir">
+          <button type="button" id="btn-pedir-codigo">Me manda o código por e-mail</button>
+          <div class="ajuda" id="senha-resultado" style="margin-top:12px"></div>
+          <p class="alternar" style="margin-top:14px">
+            <a id="ir-digitar-codigo">Já tenho um código</a>
+          </p>
+        </div>
+
+        <div id="senha-passo-codigo" class="oculto">
+          <div class="campo">
+            <label for="senha-codigo">Código</label>
+            <input id="senha-codigo" autocapitalize="characters" autocomplete="one-time-code" maxlength="12"
+                   placeholder="Ex.: K7PQ2MX4" style="text-transform:uppercase;letter-spacing:.12em">
+          </div>
+          <div class="campo">
+            <label for="senha-nova">Senha nova <span class="opcional">— mínimo 6 caracteres</span></label>
+            <input id="senha-nova" type="password" autocomplete="new-password" minlength="6">
+          </div>
+          <button type="submit">Trocar a senha e entrar</button>
+        </div>
+
+        <p class="alternar">Lembrou? <a id="voltar-do-senha">Entrar</a></p>
       </form>
 
       <!-- criar conta -->
@@ -524,6 +561,24 @@
       </div>
       <div class="ajuda" id="estado-email" style="margin:-6px 0 16px"></div>
       <button id="btn-salvar-perfil">Salvar</button>
+
+      <details class="dobra" style="margin-top:18px">
+        <summary>Trocar a minha senha</summary>
+        <div style="margin-top:14px">
+          <div class="campo">
+            <label for="cfg-senha-atual">Senha de agora</label>
+            <input id="cfg-senha-atual" type="password" autocomplete="current-password">
+          </div>
+          <div class="campo">
+            <label for="cfg-senha-nova">Senha nova <span class="opcional">— mínimo 6 caracteres</span></label>
+            <input id="cfg-senha-nova" type="password" autocomplete="new-password" minlength="6">
+          </div>
+          <div class="ajuda" style="margin-bottom:12px">
+            Trocar a senha desconecta o sistema em todos os outros aparelhos onde você tinha entrado.
+          </div>
+          <button id="btn-trocar-senha">Trocar a senha</button>
+        </div>
+      </details>
     </div></div>
   <div id="config-cursos" class="oculto"><div id="aba-cursos" >
       <div class="cartao">

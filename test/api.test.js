@@ -2216,3 +2216,164 @@ test('a caixa de entrada do aluno sabe o que ele já leu', async () => {
     assert.equal((await bruno(`/api/atividades/${id}/lida`, { metodo: 'POST' })).status, 403);
   });
 });
+
+// ---------------------------------------------------------------- esqueci a senha
+
+test('o professor gera um código e o aluno escolhe a senha nova', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, ana } = await turmaComAluno(base);
+    const alunoId = (await admin('/api/turma')).dados.alunos[0].id;
+
+    const gerado = await admin(`/api/alunos/${alunoId}/senha`, { metodo: 'POST' });
+    assert.equal(gerado.status, 201, JSON.stringify(gerado.dados));
+    const { codigo } = gerado.dados;
+    assert.match(codigo, /^[A-Z2-9]{8}$/, 'oito caracteres, sem letra que se confunda com número');
+    assert.equal(gerado.dados.aluno.email, 'ana@ex.br');
+    assert.equal(gerado.dados.enviado_por_email, false, 'sem serviço de e-mail, o código volta na tela');
+
+    // Código errado não diz nada além de "errado".
+    const errado = await cliente(base)('/api/senha/redefinir', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', codigo: 'AAAAAAAA', senha: 'novasenha' },
+    });
+    assert.equal(errado.status, 400);
+    assert.match(errado.dados.erro, /inválido ou vencido/i);
+
+    // Com o código certo, ela troca e já entra logada.
+    const nova = cliente(base);
+    const trocada = await nova('/api/senha/redefinir', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', codigo, senha: 'outrasenha' },
+    });
+    assert.equal(trocada.status, 200, JSON.stringify(trocada.dados));
+    assert.equal(trocada.dados.usuario.nome, 'Ana Ribeiro');
+    assert.equal((await nova('/api/eu')).dados.usuario.nome, 'Ana Ribeiro', 'a sessão já veio junto');
+
+    // A senha velha morreu, a nova vale.
+    const porta = cliente(base);
+    assert.equal((await porta('/api/login', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', senha: 'senha123' },
+    })).status, 401);
+    assert.equal((await porta('/api/login', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', senha: 'outrasenha' },
+    })).status, 200);
+
+    // Trocar a senha derruba as sessões que estavam abertas.
+    assert.equal((await ana('/api/eu')).dados.usuario, null, 'a sessão antiga da aluna caiu');
+
+    // E o código não serve duas vezes.
+    assert.equal((await cliente(base)('/api/senha/redefinir', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', codigo, senha: 'terceirasenha' },
+    })).status, 400);
+  });
+});
+
+test('o código de senha morre depois de cinco chutes', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin } = await turmaComAluno(base);
+    const alunoId = (await admin('/api/turma')).dados.alunos[0].id;
+    const { codigo } = (await admin(`/api/alunos/${alunoId}/senha`, { metodo: 'POST' })).dados;
+
+    const c = cliente(base);
+    const chutar = (qual) => c('/api/senha/redefinir', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', codigo: qual, senha: 'novasenha' },
+    });
+    for (let i = 0; i < 5; i++) assert.equal((await chutar('BBBBBBBB')).status, 400);
+
+    const morreu = await chutar('CCCCCCCC');
+    assert.equal(morreu.status, 429);
+    assert.match(morreu.dados.erro, /vezes demais/i);
+
+    // Nem o código certo vale mais: o pedido acabou.
+    assert.equal((await chutar(codigo)).status, 400);
+  });
+});
+
+test('pedir código novo cancela o anterior', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin } = await turmaComAluno(base);
+    const alunoId = (await admin('/api/turma')).dados.alunos[0].id;
+    const primeiro = (await admin(`/api/alunos/${alunoId}/senha`, { metodo: 'POST' })).dados.codigo;
+    const segundo = (await admin(`/api/alunos/${alunoId}/senha`, { metodo: 'POST' })).dados.codigo;
+    assert.notEqual(primeiro, segundo);
+
+    assert.equal((await cliente(base)('/api/senha/redefinir', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', codigo: primeiro, senha: 'novasenha' },
+    })).status, 400, 'o código velho não vale mais');
+    assert.equal((await cliente(base)('/api/senha/redefinir', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', codigo: segundo, senha: 'novasenha' },
+    })).status, 200);
+  });
+});
+
+test('o aluno de outro professor está fora de alcance', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin } = await turmaComAluno(base);
+    const alunoId = (await admin('/api/turma')).dados.alunos[0].id;
+
+    const outra = await criarProfessorConvidado(base, admin, 'Profa. Helena', 'helena@exemplo.br');
+    const salaDela = await criarTurma(outra, 'Noite');
+    await criarAluno(base, 'Carla', 'carla@ex.br', salaDela.codigo);
+
+    assert.equal((await outra(`/api/alunos/${alunoId}/senha`, { metodo: 'POST' })).status, 404);
+    // E um aluno não gera código para ninguém, nem para si mesmo.
+    const ana = cliente(base);
+    await ana('/api/login', { metodo: 'POST', corpo: { email: 'ana@ex.br', senha: 'senha123' } });
+    assert.equal((await ana(`/api/alunos/${alunoId}/senha`, { metodo: 'POST' })).status, 403);
+  });
+});
+
+test('quem esquece a senha recebe o código por e-mail — e nada vaza sobre quem tem conta', async () => {
+  await comEmail(async ({ base, email }) => {
+    const admin = await criarProfessor(base);
+    const turma = await criarTurma(admin, 'Manhã');
+    await criarAluno(base, 'Ana Ribeiro', 'ana@ex.br', turma.codigo);
+
+    const c = cliente(base);
+    const existe = await c('/api/senha/esqueci', { metodo: 'POST', corpo: { email: 'ana@ex.br' } });
+    const naoExiste = await c('/api/senha/esqueci', { metodo: 'POST', corpo: { email: 'ninguem@ex.br' } });
+    assert.deepEqual(existe.dados, naoExiste.dados, 'a resposta não diz quem tem cadastro');
+    assert.equal(existe.dados.email_ativo, true);
+
+    assert.equal(email.enviados.length, 1, 'só saiu e-mail para quem existe');
+    assert.deepEqual(email.enviados[0].para, ['ana@ex.br'], 'vai para o e-mail da conta');
+    const codigo = email.enviados[0].texto.match(/\b([A-Z2-9]{8})\b/)[1];
+
+    const nova = cliente(base);
+    assert.equal((await nova('/api/senha/redefinir', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', codigo, senha: 'senhanova' },
+    })).status, 200);
+    assert.equal((await nova('/api/eu')).dados.usuario.email, 'ana@ex.br');
+  });
+});
+
+test('sem serviço de e-mail, a tela sabe que o código tem de vir do professor', async () => {
+  await comAmbiente(async ({ base }) => {
+    await turmaComAluno(base);
+    const r = await cliente(base)('/api/senha/esqueci', { metodo: 'POST', corpo: { email: 'ana@ex.br' } });
+    assert.equal(r.status, 200);
+    assert.equal(r.dados.email_ativo, false);
+  });
+});
+
+test('quem está logado troca a própria senha conferindo a atual', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { ana } = await turmaComAluno(base);
+
+    assert.equal((await ana('/api/senha', {
+      metodo: 'PUT', corpo: { senha_atual: 'errada', senha: 'novasenha' },
+    })).status, 401);
+    assert.equal((await ana('/api/senha', {
+      metodo: 'PUT', corpo: { senha_atual: 'senha123', senha: 'curta' },
+    })).status, 400);
+
+    assert.equal((await ana('/api/senha', {
+      metodo: 'PUT', corpo: { senha_atual: 'senha123', senha: 'novasenha' },
+    })).status, 200);
+    // A sessão de quem trocou continua de pé; as outras, não.
+    assert.equal((await ana('/api/eu')).dados.usuario.email, 'ana@ex.br');
+
+    const porta = cliente(base);
+    assert.equal((await porta('/api/login', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', senha: 'novasenha' },
+    })).status, 200);
+  });
+});

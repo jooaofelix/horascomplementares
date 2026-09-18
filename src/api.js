@@ -144,6 +144,65 @@ const gerarCodigoTurma = (bd) => gerarCodigo(bd, 'turmas', 6);
 // Convite é mais longo: ele vale para criar uma conta de professor.
 const gerarCodigoConvite = (bd) => gerarCodigo(bd, 'convites', 10);
 
+// ---------- esqueci a senha ----------
+//
+// O código é curto de propósito: a pessoa precisa conseguir ditá-lo por
+// telefone ou copiá-lo de um bilhete quando o sistema não manda e-mail. O que
+// segura a barra é o resto — vale uma hora, morre em cinco tentativas erradas,
+// e pedir um novo cancela o anterior. No banco fica só o SHA-256 dele, como já
+// fazemos com as chaves de integração.
+const VALIDADE_SENHA_MIN = 60;
+const MAX_TENTATIVAS_SENHA = 5;
+
+const sortearCodigoSenha = () =>
+  Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => ALFABETO[b % ALFABETO.length]).join('');
+
+async function criarRedefinicao(bd, usuarioId, criadoPor = null) {
+  const codigo = sortearCodigoSenha();
+  const agora = new Date();
+  const expira = new Date(agora.getTime() + VALIDADE_SENHA_MIN * 60 * 1000);
+  // Um código por vez: o novo apaga o que ainda não foi usado.
+  await bd.run('DELETE FROM redefinicoes WHERE usuario_id = ? AND usado_em IS NULL', usuarioId);
+  await bd.run(
+    `INSERT INTO redefinicoes(usuario_id, codigo_hash, criado_por, criado_em, expira_em)
+     VALUES(?, ?, ?, ?, ?)`,
+    usuarioId, await sha256Hex(codigo), criadoPor, agora.toISOString(), expira.toISOString(),
+  );
+  return { codigo, expira_em: expira.toISOString() };
+}
+
+// Confere o código e, se bater, devolve a linha. Cada erro gasta uma tentativa
+// — é o que impede alguém de ficar chutando os 8 caracteres.
+async function conferirRedefinicao(bd, usuarioId, codigo) {
+  const agora = new Date().toISOString();
+  await bd.run('DELETE FROM redefinicoes WHERE expira_em < ?', agora);
+  const pedido = await bd.get(
+    `SELECT * FROM redefinicoes
+      WHERE usuario_id = ? AND usado_em IS NULL AND expira_em >= ?
+      ORDER BY id DESC LIMIT 1`,
+    usuarioId, agora,
+  );
+  if (!pedido) return null;
+  if (pedido.tentativas >= MAX_TENTATIVAS_SENHA) {
+    await bd.run('DELETE FROM redefinicoes WHERE id = ?', pedido.id);
+    throw erro(429, 'Esse código foi errado vezes demais e não vale mais. Peça outro.');
+  }
+  if (!comparaTexto(await sha256Hex(codigo), pedido.codigo_hash)) {
+    await bd.run('UPDATE redefinicoes SET tentativas = tentativas + 1 WHERE id = ?', pedido.id);
+    return null;
+  }
+  return pedido;
+}
+
+// Trocar a senha derruba todas as sessões: se a conta tinha sido tomada, o
+// outro lado cai junto.
+async function trocarSenha(bd, usuario, senha, iteracoesSenha) {
+  await bd.run('UPDATE usuarios SET senha_hash = ? WHERE id = ?',
+    await gerarHash(senha, iteracoesSenha), usuario.id);
+  await bd.run('DELETE FROM sessoes WHERE usuario_id = ?', usuario.id);
+  await bd.run('DELETE FROM redefinicoes WHERE usuario_id = ? AND usado_em IS NULL', usuario.id);
+}
+
 const exigirConvidador = (usuario) => {
   exigirEquipe(usuario);
   if (!usuario.pode_convidar) throw erro(403, 'Sua conta não pode gerar convites.');
@@ -1079,6 +1138,87 @@ export function criarRotas(bd, opcoes = {}) {
     ['POST', /^\/api\/logout$/, async (ctx) => {
       await encerrarSessao(bd, ctx.token);
       return { corpo: { ok: true }, cabecalhos: { 'Set-Cookie': cookieDeSessao('', null, ctx.seguro) } };
+    }],
+
+    // ---------- esqueci a senha ----------
+
+    // Pedir o código. A resposta é sempre a mesma, exista ou não a conta: quem
+    // não é dono do e-mail não descobre por aqui quem tem cadastro.
+    //
+    // email_ativo não é segredo e é o que decide o que a tela diz em seguida:
+    // sem serviço de envio configurado, ninguém vai receber código nenhum, e a
+    // pessoa precisa saber disso para pedir um ao professor em vez de ficar
+    // esperando.
+    ['POST', /^\/api\/senha\/esqueci$/, async (ctx) => {
+      const email = texto(ctx.corpo.email, 'seu e-mail', { max: 160 }).toLowerCase();
+      const resposta = { corpo: { ok: true, email_ativo: Boolean(opcoes.email?.ativo) } };
+
+      const usuario = await bd.get('SELECT id, nome, email, pre_cadastrado FROM usuarios WHERE email = ?', email);
+      if (!usuario || usuario.pre_cadastrado) return resposta;
+      if (!opcoes.email?.ativo) return resposta;
+
+      const { codigo } = await criarRedefinicao(bd, usuario.id);
+      avisarPorEmail(
+        opcoes,
+        [{ email: usuario.email, avisar_email: 1 }],
+        'Seu código para trocar a senha no PostAí',
+        `Olá, ${usuario.nome}.\n\n`
+        + `Alguém pediu para trocar a senha desta conta. O código é:\n\n`
+        + `    ${codigo}\n\n`
+        + `Ele vale por ${VALIDADE_SENHA_MIN} minutos. Abra o sistema, toque em "Esqueci minha senha", `
+        + `digite o código e escolha a senha nova.\n\n`
+        + `Se não foi você que pediu, pode ignorar esta mensagem: sua senha continua a mesma.`
+        + linkDoSistema(ctx),
+      );
+      return resposta;
+    }],
+
+    // Trocar a senha com o código na mão. Serve para os dois caminhos: o código
+    // que chegou por e-mail e o que o professor gerou e entregou na aula.
+    ['POST', /^\/api\/senha\/redefinir$/, async (ctx) => {
+      const email = texto(ctx.corpo.email, 'seu e-mail', { max: 160 }).toLowerCase();
+      const codigo = normalizarCodigo(ctx.corpo.codigo, 'o código');
+      const senha = typeof ctx.corpo.senha === 'string' ? ctx.corpo.senha : '';
+      if (!codigo) throw erro(400, 'Informe o código que você recebeu.');
+      if (senha.length < 6) throw erro(400, 'A senha precisa de pelo menos 6 caracteres.');
+
+      const usuario = await bd.get('SELECT * FROM usuarios WHERE email = ?', email);
+      // E-mail que não existe e código errado dão a mesma resposta, pelo mesmo
+      // motivo de sempre: não dá para descobrir quem tem conta chutando.
+      const pedido = usuario ? await conferirRedefinicao(bd, usuario.id, codigo) : null;
+      if (!pedido) throw erro(400, 'Código inválido ou vencido. Peça outro.');
+
+      await trocarSenha(bd, usuario, senha, iteracoesSenha);
+      await bd.run('UPDATE redefinicoes SET usado_em = ? WHERE id = ?', new Date().toISOString(), pedido.id);
+      await registrar(bd, { ...ctx, usuario }, 'usuario', usuario.id, 'senha_trocada',
+        pedido.criado_por ? 'Senha trocada com código gerado pela equipe.' : 'Senha trocada pelo próprio usuário.');
+
+      // Já entra logado: ninguém acabou de escolher uma senha para digitá-la de novo.
+      const { token, expira } = await criarSessao(bd, usuario.id);
+      return {
+        corpo: { usuario: { id: usuario.id, nome: usuario.nome, email: usuario.email, papel: usuario.papel } },
+        cabecalhos: { 'Set-Cookie': cookieDeSessao(token, expira, ctx.seguro) },
+      };
+    }],
+
+    // Trocar a própria senha estando logado — sem código, mas conferindo a atual.
+    ['PUT', /^\/api\/senha$/, async (ctx) => {
+      const usuario = ctx.exigirLogin();
+      const atual = typeof ctx.corpo.senha_atual === 'string' ? ctx.corpo.senha_atual : '';
+      const nova = typeof ctx.corpo.senha === 'string' ? ctx.corpo.senha : '';
+      if (nova.length < 6) throw erro(400, 'A senha nova precisa de pelo menos 6 caracteres.');
+
+      const completo = await bd.get('SELECT * FROM usuarios WHERE id = ?', usuario.id);
+      if (!(await conferirSenha(atual, completo.senha_hash))) throw erro(401, 'A senha atual está errada.');
+
+      await trocarSenha(bd, usuario, nova, iteracoesSenha);
+      await registrar(bd, ctx, 'usuario', usuario.id, 'senha_trocada', 'Senha trocada pelo próprio usuário.');
+      // Derrubamos todas as sessões, inclusive esta: devolvemos uma nova.
+      const { token, expira } = await criarSessao(bd, usuario.id);
+      return {
+        corpo: { ok: true },
+        cabecalhos: { 'Set-Cookie': cookieDeSessao(token, expira, ctx.seguro) },
+      };
     }],
 
     // Confere um código antes do cadastro: mostra em qual turma o aluno vai entrar.
@@ -2408,6 +2548,44 @@ export function criarRotas(bd, opcoes = {}) {
         aluno.id,
       );
       return { corpo: { aluno: { id: aluno.id, nome: aluno.nome }, anotacoes } };
+    }],
+
+    // O caminho que funciona mesmo sem serviço de e-mail: a professora gera o
+    // código na frente do aluno e entrega. Ela nunca vê nem escolhe a senha —
+    // quem escolhe é ele, com o código na mão.
+    ['POST', /^\/api\/alunos\/(\d+)\/senha$/, async (ctx) => {
+      const equipe = exigirEquipe(ctx.exigirLogin());
+      const aluno = await alunoAoAlcance(bd, Number(ctx.parametros[0]), equipe);
+      const dados = await bd.get('SELECT id, nome, email, pre_cadastrado FROM usuarios WHERE id = ?', aluno.id);
+      if (dados.pre_cadastrado) {
+        throw erro(409, 'Esse aluno ainda não criou a conta dele. Ele deve usar "Criar conta" com esse mesmo e-mail.');
+      }
+
+      const { codigo, expira_em: expira } = await criarRedefinicao(bd, aluno.id, equipe.id);
+      await registrar(bd, ctx, 'usuario', aluno.id, 'codigo_de_senha',
+        `${equipe.nome} gerou um código de troca de senha para ${dados.nome}.`);
+
+      // Se o sistema sabe mandar e-mail, manda também — mas o código volta na
+      // resposta de qualquer jeito, para ela ler em voz alta ou mandar no grupo.
+      avisarPorEmail(
+        opcoes,
+        [{ email: dados.email, avisar_email: 1 }],
+        'Seu código para trocar a senha no PostAí',
+        `Olá, ${dados.nome}.\n\n${equipe.nome} gerou um código para você escolher uma senha nova:\n\n`
+        + `    ${codigo}\n\nEle vale por ${VALIDADE_SENHA_MIN} minutos.`
+        + linkDoSistema(ctx),
+      );
+
+      return {
+        status: 201,
+        corpo: {
+          aluno: { id: dados.id, nome: dados.nome, email: dados.email },
+          codigo,
+          expira_em: expira,
+          minutos: VALIDADE_SENHA_MIN,
+          enviado_por_email: Boolean(opcoes.email?.ativo),
+        },
+      };
     }],
 
     ['POST', /^\/api\/alunos\/(\d+)\/anotacoes$/, async (ctx) => {

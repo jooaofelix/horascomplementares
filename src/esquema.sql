@@ -140,6 +140,19 @@ CREATE TABLE IF NOT EXISTS convites (
   usado_em   TEXT
 );
 
+CREATE TABLE IF NOT EXISTS redefinicoes (
+  id          INTEGER PRIMARY KEY,
+  usuario_id  INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  codigo_hash TEXT NOT NULL,
+  criado_por  INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  tentativas  INTEGER NOT NULL DEFAULT 0,
+  criado_em   TEXT NOT NULL,
+  expira_em   TEXT NOT NULL,
+  usado_em    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_redefinicoes_usuario ON redefinicoes(usuario_id);
+
 CREATE TABLE IF NOT EXISTS config (
   chave TEXT PRIMARY KEY,
   valor TEXT NOT NULL

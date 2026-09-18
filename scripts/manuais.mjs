@@ -124,6 +124,21 @@ const professor = {
       dica: 'Mudou de ideia sobre a aprovação? "Mudar a decisão desta atividade", logo abaixo, '
         + 'traz de volta Aprovar, Devolver e Reprovar.',
     },
+    {
+      titulo: 'Quando um aluno esquece a senha',
+      texto: [
+        'Vai acontecer, e a senhora resolve em dez segundos. Em "Meus alunos", abra o aluno e toque '
+        + 'em "Ele esqueceu a senha" e depois em "Gerar código de senha".',
+        'Aparece um código de 8 letras. Dite, copie ou mande no grupo. O aluno abre o sistema, toca '
+        + 'em "Esqueci minha senha", depois em "Já tenho um código", digita o código e escolhe a '
+        + 'senha nova dele.',
+        'A senhora não vê nem escolhe a senha de ninguém — só entrega o código. Ele vale por uma '
+        + 'hora; passou disso, é só gerar outro.',
+      ],
+      imagem: 'prof-senha.png',
+      dica: 'A sua própria senha se troca em Configurações, na aba Meus dados, em '
+        + '"Trocar a minha senha".',
+    },
   ],
   perguntas: [
     ['Preciso instalar alguma coisa?',
@@ -138,8 +153,10 @@ const professor = {
       + '"Ver histórico da solicitação" — nada é apagado.'],
     ['Posso escrever coisas sobre um aluno?',
       'Sim. Em "Meus alunos", cada um tem um caderno de anotações que só a equipe vê. O aluno nunca vê.'],
-    ['Esqueci a senha.',
-      'Peça a quem administra o sistema para cadastrar uma nova para você.'],
+    ['Esqueci a minha senha.',
+      'Em Configurações, na aba Meus dados, existe "Trocar a minha senha" — mas isso pede a senha '
+      + 'antiga. Se você não lembra dela, peça a outra pessoa da equipe para gerar um código para '
+      + 'você, do mesmo jeito que você gera para os alunos.'],
   ],
   fecho:
     'Pronto. Publicar aula, corrigir entrega e validar hora — o resto é detalhe que você descobre '
@@ -246,6 +263,20 @@ const aluno = {
       imagem: 'aluno-progresso.png',
       dica: 'Tarefa aceita numa matéria de estágio vira hora validada sozinha — você não precisa lançar de novo.',
     },
+    {
+      titulo: 'Se você esquecer a senha',
+      texto: [
+        'Na tela de entrada tem "Esqueci minha senha". Digite o seu e-mail e toque no botão.',
+        'Se o sistema mandar e-mail, o código de 8 letras chega na sua caixa de entrada (olhe o '
+        + 'spam também). Se não mandar, a própria tela avisa: peça o código ao seu professor, que '
+        + 'gera na hora.',
+        'Com o código na mão, toque em "Já tenho um código", digite o código, escolha a senha nova '
+        + 'e pronto — você já entra direto. O código vale por uma hora.',
+      ],
+      imagem: 'aluno-senha.png',
+      dica: 'Quem escolhe a senha é você. O professor entrega o código, mas nunca vê nem escolhe a '
+        + 'sua senha.',
+    },
   ],
   perguntas: [
     ['Preciso instalar aplicativo?', 'Não. É um site, abre no navegador do celular.'],
@@ -254,7 +285,10 @@ const aluno = {
       'Ela volta para a fila do professor, e ele valida de novo. Isso é normal.'],
     ['Faço parte de duas turmas.',
       'Hoje a conta fica em uma turma por vez. Fale com o professor.'],
-    ['Esqueci a senha.', 'Peça ao professor para gerar uma nova para você.'],
+    ['Esqueci a senha.',
+      'Na tela de entrada tem "Esqueci minha senha". Se o sistema mandar e-mail, o código chega na '
+      + 'sua caixa; se não, peça o código ao professor — ele gera na hora. Quem escolhe a senha nova '
+      + 'é você, não ele.'],
   ],
   fecho:
     'Resumindo: tarefa que o professor pediu, você entrega pela tarefa. Coisa que você fez por '

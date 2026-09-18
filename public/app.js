@@ -84,14 +84,79 @@ function mostrarEntrada() {
   $('#tela-entrada').classList.remove('oculto');
 }
 
-const trocarFormulario = (mostrarCadastro) => {
-  $('#form-login').classList.toggle('oculto', mostrarCadastro);
-  $('#form-cadastro').classList.toggle('oculto', !mostrarCadastro);
+// Erro na tela de entrada: sempre no mesmo lugar, acima dos formulários.
+const avisarEntrada = (mensagem) => {
+  avisar(mensagem, 'erro', '#aviso-entrada');
+  $('#aviso-entrada').classList.remove('oculto');
+};
+
+// Três formulários no mesmo cartão de entrada: entrar, criar conta e trocar a
+// senha. Só um aparece de cada vez.
+const trocarFormulario = (qual) => {
+  $('#form-login').classList.toggle('oculto', qual !== 'login');
+  $('#form-cadastro').classList.toggle('oculto', qual !== 'cadastro');
+  $('#form-senha').classList.toggle('oculto', qual !== 'senha');
   $('#aviso-entrada').classList.add('oculto');
 };
 
-$('#ir-cadastro').onclick = () => trocarFormulario(true);
-$('#ir-login').onclick = () => trocarFormulario(false);
+$('#ir-cadastro').onclick = () => trocarFormulario('cadastro');
+$('#ir-login').onclick = () => trocarFormulario('login');
+$('#voltar-do-senha').onclick = () => trocarFormulario('login');
+
+$('#ir-senha').onclick = () => {
+  trocarFormulario('senha');
+  // Quem já digitou o e-mail para entrar não digita de novo.
+  $('#senha-email').value = $('#login-email').value;
+  $('#senha-resultado').textContent = '';
+  $('#senha-passo-codigo').classList.add('oculto');
+  $('#senha-passo-pedir').classList.remove('oculto');
+};
+
+// "Já tenho um código" — quem recebeu o código do professor pula o pedido.
+$('#ir-digitar-codigo').onclick = () => {
+  $('#senha-passo-codigo').classList.remove('oculto');
+  $('#senha-codigo').focus();
+};
+
+$('#btn-pedir-codigo').onclick = async () => {
+  const email = $('#senha-email').value.trim();
+  if (!email) return avisarEntrada('Digite o seu e-mail primeiro.');
+  const botao = $('#btn-pedir-codigo');
+  botao.disabled = true;
+  try {
+    const r = await api('/api/senha/esqueci', { metodo: 'POST', corpo: { email } });
+    // O sistema nunca diz se a conta existe — quem não é dono do e-mail não
+    // descobre por aqui quem tem cadastro.
+    $('#senha-resultado').innerHTML = r.email_ativo
+      ? 'Se existir uma conta com esse e-mail, o código já saiu. Confira a caixa de entrada '
+        + '(e o spam) e digite o código abaixo. Ele vale por 1 hora.'
+      : '<strong>Este sistema ainda não manda e-mail.</strong> Peça o código ao seu professor: '
+        + 'ele gera na hora, em "Meus alunos". Com o código na mão, toque em "Já tenho um código".';
+    $('#senha-passo-codigo').classList.toggle('oculto', !r.email_ativo);
+  } catch (err) {
+    avisarEntrada(err.message);
+  } finally {
+    botao.disabled = false;
+  }
+};
+
+$('#form-senha').onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/senha/redefinir', {
+      metodo: 'POST',
+      corpo: {
+        email: $('#senha-email').value,
+        codigo: $('#senha-codigo').value,
+        senha: $('#senha-nova').value,
+      },
+    });
+    await iniciar();
+    avisar('Senha trocada. Você já está dentro.', 'ok');
+  } catch (err) {
+    avisarEntrada(err.message);
+  }
+};
 
 $$('.escolha button').forEach((botao) => {
   botao.onclick = () => {
@@ -159,8 +224,7 @@ $('#form-login').onsubmit = async (e) => {
     });
     await iniciar();
   } catch (err) {
-    avisar(err.message, 'erro', '#aviso-entrada');
-    $('#aviso-entrada').classList.remove('oculto');
+    avisarEntrada(err.message);
   }
 };
 
@@ -182,8 +246,7 @@ $('#form-cadastro').onsubmit = async (e) => {
     });
     await iniciar();
   } catch (err) {
-    avisar(err.message, 'erro', '#aviso-entrada');
-    $('#aviso-entrada').classList.remove('oculto');
+    avisarEntrada(err.message);
   }
 };
 
@@ -879,6 +942,19 @@ function desenharAlunos() {
             </summary>
             <div data-anotacoes-de="${a.id}" class="sub" style="margin-top:10px">carregando…</div>
           </details>
+          <details style="margin-top:8px">
+            <summary style="cursor:pointer;color:var(--alunos);font-weight:600;font-size:15px">
+              Ele esqueceu a senha
+            </summary>
+            <div style="margin-top:10px">
+              <p class="explicacao">
+                Gere um código e entregue a ele. Com o código, ele escolhe a senha nova sozinho —
+                você não precisa saber a senha de ninguém.
+              </p>
+              <button class="secundario mini" data-senha="${a.id}">Gerar código de senha</button>
+              <div data-senha-de="${a.id}" style="margin-top:10px"></div>
+            </div>
+          </details>
         </div>`;
       }).join('')
     : `<p class="vazio">Nenhum aluno entrou ainda. Abra a aba <strong>Turmas</strong>, toque em
@@ -909,8 +985,27 @@ async function mostrarAnotacoes(alunoId, alvo) {
 }
 
 $('#lista-alunos').addEventListener('click', async (e) => {
-  const { anotacoes, salvarAnotacao, apagarAnotacao } = e.target.dataset;
+  const { anotacoes, salvarAnotacao, apagarAnotacao, senha } = e.target.dataset;
   try {
+    if (senha) {
+      const alvo = $(`[data-senha-de="${senha}"]`);
+      alvo.innerHTML = '<p class="sub">gerando…</p>';
+      const r = await api(`/api/alunos/${senha}/senha`, { metodo: 'POST' });
+      alvo.innerHTML = `
+        <div class="codigo-turma" style="margin:0">
+          <span class="codigo">${escapar(r.codigo)}</span>
+        </div>
+        <p class="sub" style="margin-top:10px">
+          Passe este código para <strong>${escapar(r.aluno.nome)}</strong>. Ele vale
+          ${r.minutos} minutos${r.enviado_por_email ? ' e também foi para o e-mail dele' : ''}.
+          Na tela de entrada, ele toca em <em>Esqueci minha senha</em> → <em>Já tenho um código</em>.
+        </p>
+        <button class="secundario mini" data-copiar-senha="${escapar(r.codigo)}">Copiar código</button>`;
+    }
+    if (e.target.dataset.copiarSenha) {
+      await navigator.clipboard.writeText(e.target.dataset.copiarSenha);
+      avisar('Código copiado.', 'ok');
+    }
     if (anotacoes) {
       const alvo = $(`[data-anotacoes-de="${anotacoes}"]`);
       if (alvo) await mostrarAnotacoes(anotacoes, alvo);
@@ -1506,6 +1601,20 @@ async function carregarAdmin() {
   desenharCursos();
   desenharUsuarios();
 }
+
+$('#btn-trocar-senha').onclick = async () => {
+  try {
+    await api('/api/senha', {
+      metodo: 'PUT',
+      corpo: { senha_atual: $('#cfg-senha-atual').value, senha: $('#cfg-senha-nova').value },
+    });
+    $('#cfg-senha-atual').value = '';
+    $('#cfg-senha-nova').value = '';
+    avisar('Senha trocada. Os outros aparelhos onde você tinha entrado precisam entrar de novo.', 'ok');
+  } catch (err) {
+    falhar(err);
+  }
+};
 
 $('#btn-salvar-perfil').onclick = async () => {
   try {

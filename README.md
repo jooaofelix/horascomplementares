@@ -547,6 +547,36 @@ senhas subindo `ITERACOES_SENHA` (em `wrangler.toml` ou como variável de ambien
 Contas antigas continuam funcionando: cada senha é conferida com o número de iterações com que foi
 criada, e passa a usar o novo valor quando a senha for trocada.
 
+### Esqueci a senha
+
+Há **três** caminhos para trocar uma senha, e o segundo é o que importa aqui, porque é o único que
+funciona num sistema sem serviço de e-mail configurado.
+
+**1. Pela tela de entrada, por e-mail.** *Esqueci minha senha* → digita o e-mail → o código de 8
+caracteres chega na caixa da pessoa. A resposta da API é sempre a mesma exista ou não a conta, então
+ninguém descobre por aqui quem tem cadastro. Ela devolve `email_ativo`, e é isso que decide o que a
+tela diz em seguida: sem serviço de envio, a pessoa é mandada direto para o caminho 2 em vez de ficar
+esperando um e-mail que nunca sai.
+
+**2. O professor gera o código.** Em **Meus alunos**, cada aluno tem *"Ele esqueceu a senha" → Gerar
+código de senha*. O código aparece na tela para ela ditar, copiar ou mandar no grupo (e vai por
+e-mail também, se o envio estiver ligado). **A professora nunca vê nem escolhe a senha de ninguém** —
+ela entrega o código, e quem escolhe a senha é o aluno. Só funciona para alunos das turmas dela.
+
+**3. Estando logado.** Configurações → Meus dados → *Trocar a minha senha*, conferindo a atual.
+
+O que protege o código curto não é o tamanho dele, é o cerco em volta:
+
+- vale **1 hora**;
+- morre depois de **5 tentativas erradas** (aí nem o código certo vale mais — tem de pedir outro);
+- pedir um novo **cancela o anterior**: só existe um código válido por pessoa;
+- no banco fica só o **SHA-256** dele, nunca o código em si;
+- trocar a senha **derruba todas as sessões** daquela conta: se ela tinha sido tomada, o outro lado
+  cai junto. A única sessão que sobrevive é a de quem acabou de trocar.
+
+O alfabeto é o mesmo dos códigos de turma (`ABCDEFGHJKLMNPQRSTUVWXYZ23456789`), sem as letras que se
+confundem com números ao ditar — não existe `O`, `0`, `I` nem `1` para errar.
+
 ## Estrutura
 
 ```

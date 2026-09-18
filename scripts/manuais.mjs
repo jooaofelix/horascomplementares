@@ -109,6 +109,21 @@ const professor = {
       imagem: 'prof-validar.png',
       dica: 'O botão "Baixar planilha" leva tudo para o Excel, com as horas aprovadas e o status.',
     },
+    {
+      titulo: 'Aprovar e mesmo assim pedir mais',
+      texto: [
+        'Às vezes o trabalho está certo, mas você quer mais: a conclusão que faltou, a ligação com '
+        + 'a teoria, outra leitura. Não precisa reprovar nem devolver para isso.',
+        'Numa atividade já aprovada aparece a caixa "Quer pedir mais alguma coisa?". Escreva o que '
+        + 'falta e toque em "Pedir mais ao aluno". As horas que você já aprovou continuam valendo — '
+        + 'o aluno não perde nada por você ter pedido mais.',
+        'Ele faz o que foi pedido, informa quanto tempo levou e manda de volta. Esse tempo soma nas '
+        + 'horas dele, e você aprova o total novo. Dá para pedir quantas vezes precisar.',
+      ],
+      imagem: 'prof-complemento.png',
+      dica: 'Mudou de ideia sobre a aprovação? "Mudar a decisão desta atividade", logo abaixo, '
+        + 'traz de volta Aprovar, Devolver e Reprovar.',
+    },
   ],
   perguntas: [
     ['Preciso instalar alguma coisa?',
@@ -203,6 +218,20 @@ const aluno = {
       ],
       imagem: 'aluno-reenviar.png',
       dica: 'O que o professor pediu fica registrado na conversa, para você conferir se atendeu tudo.',
+    },
+    {
+      titulo: 'Se ele aprovar e ainda pedir mais',
+      texto: [
+        'É diferente de ser devolvido. O selo fica "aprovada · pediram mais": o professor aceitou o '
+        + 'que você mandou e quer mais alguma coisa em cima.',
+        'As horas que ele já aprovou continuam suas — elas não somem enquanto você faz o resto. '
+        + 'Na conversa aparece "Enviar o complemento": faça o que foi pedido, informe quantas horas '
+        + 'isso levou e mande.',
+        'Esse tempo soma nas suas horas, e o professor aprova o total novo.',
+      ],
+      imagem: 'aluno-complemento.png',
+      dica: 'Repare no número de "aprovadas" antes e depois: ele não cai. Só "em análise" sobe, com '
+        + 'as horas do complemento.',
     },
     {
       titulo: 'Acompanhar o seu progresso',

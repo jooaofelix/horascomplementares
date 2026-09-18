@@ -19,15 +19,37 @@ const LIMITE_TEXTO = 200_000;
 const META_PADRAO = 200;
 const LIMITE_LOTE = 200;
 
-export const STATUS = ['pendente', 'em_analise', 'aprovado', 'reprovado', 'correcao'];
-const EXIGEM_MOTIVO = ['reprovado', 'correcao'];
+export const STATUS = ['pendente', 'em_analise', 'aprovado', 'reprovado', 'correcao', 'complemento'];
+const EXIGEM_MOTIVO = ['reprovado', 'correcao', 'complemento'];
 const NOME_STATUS = {
   pendente: 'aguardando análise',
   em_analise: 'em análise',
   aprovado: 'aprovada',
   reprovado: 'reprovada',
   correcao: 'devolvida para correção',
+  complemento: 'aprovada, com complemento pedido',
 };
+// Voltou para a mão do aluno: ou porque está errada, ou porque a professora
+// aceitou e pediu mais alguma coisa.
+const DEVOLVIDAS = ['correcao', 'complemento'];
+// O que ainda não fechou, esteja com quem estiver.
+const EM_ABERTO = "('pendente', 'em_analise', 'correcao', 'complemento')";
+
+// Horas que o aluno já ganhou. Não é a mesma coisa que "status = aprovado":
+// quando a professora aprova e pede um complemento, o que ela já aprovou
+// continua valendo enquanto o aluno faz o resto — ninguém perde hora por ter
+// sido chamado a fazer mais.
+const VALIDADAS = (p = '') => `CASE
+  WHEN ${p}status = 'reprovado' THEN 0
+  WHEN ${p}status = 'aprovado' THEN COALESCE(${p}horas_aprovadas, ${p}horas)
+  ELSE COALESCE(${p}horas_aprovadas, 0)
+END`;
+
+// O que ainda está em jogo: o declarado menos o que já foi aprovado.
+const AGUARDANDO = (p = '') => `CASE
+  WHEN ${p}status IN ${EM_ABERTO} THEN MAX(${p}horas - COALESCE(${p}horas_aprovadas, 0), 0)
+  ELSE 0
+END`;
 
 // Papéis da equipe, do mais restrito ao mais amplo. O professor enxerga as
 // turmas dele; o coordenador, os cursos que coordena; o admin, a faculdade.
@@ -303,7 +325,7 @@ async function porCategoria(bd, usuarioId) {
   const linhas = await bd.all(
     `SELECT cat.id, cat.nome, cat.ordem,
             r.limite_horas, r.percentual_max,
-            COALESCE(SUM(CASE WHEN a.status = 'aprovado' THEN COALESCE(a.horas_aprovadas, a.horas) ELSE 0 END), 0) AS validado,
+            COALESCE(SUM(${VALIDADAS('a.')}), 0) AS validado,
             COALESCE(SUM(CASE WHEN a.status <> 'reprovado' THEN a.horas ELSE 0 END), 0) AS declarado
        FROM categorias cat
        LEFT JOIN usuarios u ON u.id = ?
@@ -336,10 +358,10 @@ async function resumo(bd, usuarioId) {
   const linha = await bd.get(
     `SELECT COUNT(*) AS registros,
             COALESCE(SUM(horas), 0) AS declarado,
-            COALESCE(SUM(CASE WHEN status = 'aprovado' THEN COALESCE(horas_aprovadas, horas) ELSE 0 END), 0) AS validado,
-            COALESCE(SUM(CASE WHEN status IN ('pendente', 'em_analise', 'correcao') THEN horas ELSE 0 END), 0) AS aguardando,
+            COALESCE(SUM(${VALIDADAS()}), 0) AS validado,
+            COALESCE(SUM(${AGUARDANDO()}), 0) AS aguardando,
             COALESCE(SUM(CASE WHEN status = 'reprovado' THEN horas ELSE 0 END), 0) AS reprovado,
-            COALESCE(SUM(CASE WHEN status IN ('pendente', 'em_analise', 'correcao') THEN 1 ELSE 0 END), 0) AS pendentes
+            COALESCE(SUM(CASE WHEN status IN ${EM_ABERTO} THEN 1 ELSE 0 END), 0) AS pendentes
        FROM atividades WHERE usuario_id = ?`,
     usuarioId,
   );
@@ -1417,8 +1439,10 @@ export function criarRotas(bd, opcoes = {}) {
       if (atual.usuario_id !== usuario.id) throw erro(403, 'Essa atividade é de outro aluno.');
       // Depois de devolvida, não se edita: reenvia — e o reenvio pede o tempo
       // que a correção levou.
-      if (atual.status === 'correcao') {
-        throw erro(409, 'Esta atividade foi devolvida para correção. Use "Reenviar para validação".');
+      if (DEVOLVIDAS.includes(atual.status)) {
+        throw erro(409, atual.status === 'complemento'
+          ? 'O professor pediu um complemento nesta atividade. Use "Enviar o complemento".'
+          : 'Esta atividade foi devolvida para correção. Use "Reenviar para validação".');
       }
 
       const d = await validarAtividade(bd, ctx.corpo);
@@ -1473,21 +1497,24 @@ export function criarRotas(bd, opcoes = {}) {
       return { corpo: { ok: true } };
     }],
 
-    // Devolvida para correção, a atividade volta pela porta do reenvio: o aluno
-    // manda a versão corrigida e diz quanto tempo levou nisso. Esse tempo entra
-    // na carga declarada, porque corrigir também é trabalho.
+    // Devolvida, a atividade volta pela porta do reenvio: o aluno manda a versão
+    // nova e diz quanto tempo levou nisso. Esse tempo entra na carga declarada,
+    // porque corrigir — ou fazer o que foi pedido a mais — também é trabalho.
     ['POST', /^\/api\/atividades\/(\d+)\/reenviar$/, async (ctx) => {
       const usuario = ctx.exigirLogin();
       const atual = await buscarAtividade(bd, Number(ctx.parametros[0]));
       if (!atual) throw erro(404, 'Atividade não encontrada.');
       if (atual.usuario_id !== usuario.id) throw erro(403, 'Essa atividade é de outro aluno.');
-      if (atual.status !== 'correcao') {
-        throw erro(409, 'Só dá para reenviar uma atividade que o professor devolveu para correção.');
+      if (!DEVOLVIDAS.includes(atual.status)) {
+        throw erro(409, 'Só dá para reenviar uma atividade que o professor devolveu.');
       }
+      const complemento = atual.status === 'complemento';
 
       if (ctx.corpo.horas_revisao === undefined || ctx.corpo.horas_revisao === null
           || ctx.corpo.horas_revisao === '') {
-        throw erro(400, 'Informe quantas horas você levou para corrigir.');
+        throw erro(400, complemento
+          ? 'Informe quantas horas você levou fazendo o que foi pedido.'
+          : 'Informe quantas horas você levou para corrigir.');
       }
       const daRevisao = Number(ctx.corpo.horas_revisao);
       if (!Number.isFinite(daRevisao) || daRevisao < 0) throw erro(400, 'Horas de correção inválidas.');
@@ -1509,11 +1536,13 @@ export function criarRotas(bd, opcoes = {}) {
       const horas = Math.round((atual.horas + daRevisao) * 100) / 100;
       const acumulado = Math.round(((atual.horas_revisao ?? 0) + daRevisao) * 100) / 100;
 
+      // No complemento o que já estava aprovado segue aprovado: o aluno não
+      // fica sem as horas dele só porque foi chamado a fazer mais.
       await bd.run(
         `UPDATE atividades
             SET horas = ?, horas_revisao = ?, texto = ?,
                 arquivo_nome = ?, arquivo_id = ?, analise_arquivo_id = ?,
-                status = 'pendente', horas_aprovadas = NULL,
+                status = 'pendente', horas_aprovadas = ?,
                 analisado_por = NULL, analisado_em = NULL,
                 validado = 0, validado_por = NULL, validado_em = NULL, atualizado_em = ?
           WHERE id = ?`,
@@ -1521,21 +1550,26 @@ export function criarRotas(bd, opcoes = {}) {
         anexo ? anexo.nome : atual.arquivo_nome,
         anexo ? anexo.id : atual.arquivo_id,
         daAnalise ? daAnalise.id : atual.analise_arquivo_id,
+        complemento ? atual.horas_aprovadas : null,
         new Date().toISOString(), atual.id,
       );
 
       await registrar(bd, ctx, 'atividade', atual.id, 'reenviada',
-        `Aluno reenviou depois da correção: ${daRevisao} h de correção somadas, `
+        (complemento
+          ? `Aluno enviou o complemento pedido: ${daRevisao} h somadas, `
+          : `Aluno reenviou depois da correção: ${daRevisao} h de correção somadas, `)
         + `total declarado agora ${horas} h.`,
-        { horas_revisao: daRevisao, antes: atual.horas, depois: horas });
+        { horas_revisao: daRevisao, antes: atual.horas, depois: horas, complemento });
 
       avisarPorEmail(
         opcoes,
         await quemValidaAsHoras(bd, usuario.id),
-        `Correção reenviada: ${atual.titulo} — ${usuario.nome}`,
-        `${usuario.nome} corrigiu e reenviou para validação.\n`
+        `${complemento ? 'Complemento enviado' : 'Correção reenviada'}: ${atual.titulo} — ${usuario.nome}`,
+        `${usuario.nome} ${complemento ? 'fez o que você pediu a mais' : 'corrigiu'} e reenviou para validação.\n`
         + (atual.motivo ? `\nVocê tinha pedido: ${atual.motivo}\n` : '')
-        + `\nTempo de correção informado: ${daRevisao} h`
+        + `\nTempo informado pelo aluno: ${daRevisao} h`
+        + (complemento && atual.horas_aprovadas != null
+          ? `\nJá aprovadas antes: ${atual.horas_aprovadas} h` : '')
         + `\nTotal declarado agora: ${horas} h`
         + (analise ? `\n\nAnálise do aluno:\n${analise}` : '')
         + linkDoSistema(ctx),
@@ -1579,7 +1613,19 @@ export function criarRotas(bd, opcoes = {}) {
       if (EXIGEM_MOTIVO.includes(status) && !motivo) {
         throw erro(400, status === 'reprovado'
           ? 'Diga ao aluno por que a atividade foi reprovada.'
-          : 'Diga ao aluno o que precisa ser corrigido.');
+          : status === 'complemento'
+            ? 'Escreva o que mais você quer que o aluno faça.'
+            : 'Diga ao aluno o que precisa ser corrigido.');
+      }
+
+      // Pedir complemento não é desaprovar: é aceitar o que veio e pedir mais.
+      // Só faz sentido depois de aprovada — antes disso o caminho é devolver
+      // para correção.
+      const jaAprovadas = atual.status === 'aprovado' || atual.status === 'complemento'
+        ? (atual.horas_aprovadas ?? atual.horas)
+        : null;
+      if (status === 'complemento' && jaAprovadas === null) {
+        throw erro(409, 'Esta atividade ainda não foi aprovada. Para pedir mudanças, devolva para correção.');
       }
 
       let horasAprovadas = null;
@@ -1590,8 +1636,11 @@ export function criarRotas(bd, opcoes = {}) {
           throw erro(400, `O aluno declarou ${atual.horas} h; não dá para aprovar mais do que isso.`);
         }
       }
+      // As horas já aprovadas continuam no lugar enquanto ele faz o complemento.
+      if (status === 'complemento') horasAprovadas = jaAprovadas;
 
       const agora = new Date().toISOString();
+      const selada = status === 'aprovado' || status === 'complemento';
       await bd.run(
         `UPDATE atividades
             SET status = ?, horas_aprovadas = ?, motivo = ?, observacao = ?,
@@ -1600,9 +1649,9 @@ export function criarRotas(bd, opcoes = {}) {
           WHERE id = ?`,
         status, horasAprovadas, motivo, motivo,
         equipe.id, agora,
-        status === 'aprovado' ? 1 : 0,
-        status === 'aprovado' ? equipe.id : null,
-        status === 'aprovado' ? agora : null,
+        selada ? 1 : 0,
+        selada ? equipe.id : null,
+        selada ? agora : null,
         agora, id,
       );
 
@@ -1610,6 +1659,7 @@ export function criarRotas(bd, opcoes = {}) {
       await registrar(bd, ctx, 'atividade', id, status,
         `Solicitação ${NOME_STATUS[status]}` +
         (status === 'aprovado' ? ` com ${horasAprovadas} h` : '') +
+        (status === 'complemento' ? ` (as ${horasAprovadas} h já aprovadas continuam valendo)` : '') +
         (cortou ? ` (o aluno havia declarado ${atual.horas} h)` : '') +
         (motivo ? `. Motivo: ${motivo}` : '.'),
         { de: atual.status, para: status, horas_declaradas: atual.horas, horas_aprovadas: horasAprovadas });
@@ -1640,8 +1690,8 @@ export function criarRotas(bd, opcoes = {}) {
                 c.nome AS curso_nome, c.horas_obrigatorias,
                 COUNT(a.id) AS registros,
                 COALESCE(SUM(a.horas), 0) AS declarado,
-                COALESCE(SUM(CASE WHEN a.status = 'aprovado' THEN COALESCE(a.horas_aprovadas, a.horas) ELSE 0 END), 0) AS validado,
-                COALESCE(SUM(CASE WHEN a.status IN ('pendente', 'em_analise', 'correcao') THEN 1 ELSE 0 END), 0) AS pendentes
+                COALESCE(SUM(${VALIDADAS('a.')}), 0) AS validado,
+                COALESCE(SUM(CASE WHEN a.status IN ${EM_ABERTO} THEN 1 ELSE 0 END), 0) AS pendentes
            FROM usuarios u
            JOIN turmas t ON t.id = u.turma_id
            LEFT JOIN cursos c ON c.id = COALESCE(u.curso_id, t.curso_id)

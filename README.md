@@ -289,6 +289,32 @@ corrigindo (obrigatório), a análise corrigida e, se quiser, outro arquivo. Ao 
 
 Editar uma atividade devolvida deixa de ser possível — a API responde 409 apontando o caminho certo.
 
+## Aprovar e ainda assim pedir mais
+
+Nem toda volta é uma correção. Às vezes o trabalho está certo e o professor quer **mais** — outra
+leitura, a conclusão que faltou, a ligação com a teoria. Para isso existe o status `complemento`, e
+a diferença para `correcao` é uma só, mas é a que importa: **o aluno não perde o que já ganhou**.
+
+| | `correcao` | `complemento` |
+| --- | --- | --- |
+| O que o professor está dizendo | "está errado, refaça" | "está certo, mas quero mais" |
+| De onde sai | qualquer status | só de uma atividade já aprovada (senão, 409) |
+| As horas já aprovadas | **caem** e voltam para a fila | **continuam valendo** |
+| O que o aluno vê | *Reenviar para validação* | *Enviar o complemento* |
+
+No cartão de uma atividade aprovada, o professor vê **"Quer pedir mais alguma coisa?"** em primeiro
+plano — escreve o que falta e manda. A decisão antiga (aprovar com outra carga, devolver, reprovar)
+fica atrás de *"Mudar a decisão desta atividade"*, para ninguém reprovar sem querer o que já aceitou.
+
+O aluno recebe o pedido na caixa de entrada com o selo *aprovada · pediram mais*, faz o que foi
+pedido, informa quantas horas levou e manda de volta. Esse tempo soma à carga declarada como
+qualquer reenvio, e o ciclo pode repetir quantas vezes o professor precisar.
+
+O contador de horas segue essa lógica em toda parte (resumo do aluno, categorias e painel da
+turma): valem as `horas_aprovadas` enquanto a atividade não for reprovada, e "aguardando" é só a
+diferença entre o declarado e o que já foi aprovado — numa atividade de 6 h aprovadas que virou 9 h
+com o complemento, o aluno vê 6 h validadas e 3 h em análise, nunca 0 e 9.
+
 ## Quando o professor pede revisão de uma tarefa
 
 Ao devolver uma entrega, o professor escreve o que falta. Do lado do aluno aparece um campo a mais:

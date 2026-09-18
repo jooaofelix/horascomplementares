@@ -8,10 +8,13 @@ const SELO_STATUS = {
   pendente: ['esperando', 'aguardando análise'],
   em_analise: ['esperando', 'em análise'],
   correcao: ['esperando', 'devolvida para correção'],
+  complemento: ['mais', 'aprovada · pediram mais'],
   aprovado: ['ok', 'aprovada'],
   reprovado: ['reprovado', 'reprovada'],
 };
-const NA_FILA = ['pendente', 'em_analise', 'correcao'];
+const NA_FILA = ['pendente', 'em_analise', 'correcao', 'complemento'];
+// Os dois jeitos de a atividade voltar para a mão do aluno.
+const DEVOLVIDAS = ['correcao', 'complemento'];
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const estado = {
@@ -313,26 +316,36 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
         ? `<div class="observacao"><strong>${
              status === 'reprovado' ? 'Motivo da reprovação'
              : status === 'correcao' ? 'O professor pediu'
+             : status === 'complemento' ? 'O professor aprovou e pediu mais'
              : a.horas_revisao ? 'O professor havia pedido'
              : 'Professor'}:</strong> ${escapar(a.motivo || a.observacao)}</div>`
+        : ''}
+      ${status === 'complemento' && a.horas_aprovadas != null && !comValidacao
+        ? `<p class="sub" style="margin:10px 0 0">
+             Suas <strong>${horas(a.horas_aprovadas)}</strong> já aprovadas continuam valendo — o que
+             você fizer agora entra por cima.</p>`
         : ''}
       ${analise}
       <details style="margin-top:10px"><summary data-historico="${a.id}">Ver histórico da solicitação</summary>
         <div data-historico-de="${a.id}" class="sub" style="margin-top:10px">carregando…</div>
       </details>
-      ${comEdicao && status === 'correcao'
+      ${comEdicao && DEVOLVIDAS.includes(status)
         ? `<div class="bloco" style="margin:16px 0 0">
-             <h3>Reenviar para validação</h3>
+             <h3>${status === 'complemento' ? 'Enviar o complemento' : 'Reenviar para validação'}</h3>
              <p class="explicacao">
-               Depois de devolvida, a atividade não é editada: você corrige, diz quanto tempo isso
-               levou e reenvia. Esse tempo entra nas suas horas.
+               ${status === 'complemento'
+                 ? 'O professor aceitou o que você mandou e pediu mais uma coisa. Faça o que ele pediu, '
+                   + 'diga quanto tempo isso levou e mande de volta — esse tempo soma nas suas horas.'
+                 : 'Depois de devolvida, a atividade não é editada: você corrige, diz quanto tempo isso '
+                   + 'levou e reenvia. Esse tempo entra nas suas horas.'}
              </p>
              <div class="campo">
-               <label>Quantas horas você levou corrigindo</label>
+               <label>Quantas horas você levou ${status === 'complemento' ? 'nisso' : 'corrigindo'}</label>
                <input type="number" min="0" step="0.5" inputmode="decimal" data-reenvio-horas="${a.id}" placeholder="Ex.: 1,5">
              </div>
              <div class="campo">
-               <label>Sua análise corrigida <span class="opcional">(deixe como está se não mudou)</span></label>
+               <label>Sua análise ${status === 'complemento' ? 'com o que foi pedido' : 'corrigida'}
+                 <span class="opcional">(deixe como está se não mudou)</span></label>
                <textarea data-reenvio-texto="${a.id}" style="min-height:110px">${escapar(a.texto || '')}</textarea>
              </div>
              <div class="campo">
@@ -341,7 +354,8 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
                       accept=".pdf,.pptx,.ppt,.odp,.docx,.doc,.odt,.xlsx,.xls,.jpg,.jpeg,.png,.webp,.heic,.txt,.md,.csv">
              </div>
              <div class="acoes">
-               <button class="mini" data-reenviar="${a.id}">Reenviar para validação</button>
+               <button class="mini" data-reenviar="${a.id}">${
+                 status === 'complemento' ? 'Enviar o complemento' : 'Reenviar para validação'}</button>
                <button class="perigo mini" data-excluir="${a.id}">Excluir</button>
              </div>
            </div>`
@@ -351,27 +365,61 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
                <button class="perigo mini" data-excluir="${a.id}">Excluir</button>
              </div>`
           : ''}
-      ${comValidacao
-        ? `<div style="margin-top:16px">
-             <div class="linha">
-               <div class="campo">
-                 <label>Horas a aprovar</label>
-                 <input type="number" min="0" step="0.5" inputmode="decimal" data-horas-aprovadas="${a.id}"
-                        value="${a.horas_aprovadas ?? a.horas}">
-               </div>
-               <div class="campo" style="flex:2">
-                 <label>Motivo <span class="opcional">(obrigatório para reprovar ou devolver)</span></label>
-                 <input data-motivo="${a.id}" value="${escapar(a.motivo || '')}">
-               </div>
-             </div>
-             <div class="acoes">
-               <button class="mini" data-analise="${a.id}" data-status="aprovado">Aprovar</button>
-               <button class="secundario mini" data-analise="${a.id}" data-status="correcao">Devolver para correção</button>
-               <button class="perigo mini" data-analise="${a.id}" data-status="reprovado">Reprovar</button>
-             </div>
-           </div>`
-        : ''}
+      ${comValidacao ? blocoDoProfessor(a, status) : ''}
     </article>`;
+}
+
+// O que a professora vê embaixo da atividade depende de ela já ter decidido ou
+// não. Antes de decidir: aprovar, devolver ou reprovar. Depois de aprovada, a
+// pergunta é outra — "quero mais alguma coisa?" —, então o pedido de
+// complemento fica sozinho na frente e a decisão antiga fica guardada atrás de
+// um "mudar a decisão", para ninguém reprovar sem querer o que já aceitou.
+const jaDecidiu = (status) => status === 'aprovado' || status === 'complemento';
+
+function blocoDoProfessor(a, status) {
+  const campos = `
+    <div class="linha">
+      <div class="campo">
+        <label>Horas a aprovar</label>
+        <input type="number" min="0" step="0.5" inputmode="decimal" data-horas-aprovadas="${a.id}"
+               value="${jaDecidiu(status) ? (a.horas_aprovadas ?? a.horas) : a.horas}">
+      </div>
+      <div class="campo" style="flex:2">
+        <label>Recado para o aluno <span class="opcional">(obrigatório para reprovar ou devolver)</span></label>
+        <input data-motivo="${a.id}" value="${escapar(a.motivo || '')}">
+      </div>
+    </div>`;
+  const trio = `
+    <div class="acoes">
+      <button class="mini" data-analise="${a.id}" data-status="aprovado">Aprovar</button>
+      <button class="secundario mini" data-analise="${a.id}" data-status="correcao">Devolver para correção</button>
+      <button class="perigo mini" data-analise="${a.id}" data-status="reprovado">Reprovar</button>
+    </div>`;
+
+  if (!jaDecidiu(status)) return `<div style="margin-top:16px">${campos}${trio}</div>`;
+
+  return `
+    <div style="margin-top:16px">
+      <div class="bloco" data-area="horas">
+        <h3>Quer pedir mais alguma coisa?</h3>
+        <p class="explicacao">
+          As ${horas(a.horas_aprovadas ?? a.horas)} continuam aprovadas. Escreva o que falta, e o aluno
+          manda de volta dizendo quanto tempo levou — esse tempo soma nas horas dele.
+        </p>
+        <div class="campo">
+          <label>O que você quer a mais</label>
+          <input data-pedido="${a.id}" value="${escapar(status === 'complemento' ? (a.motivo || '') : '')}"
+                 placeholder="Ex.: falta relacionar com a teoria vista em aula">
+        </div>
+        <div class="acoes">
+          <button class="mini" data-analise="${a.id}" data-status="complemento">Pedir mais ao aluno</button>
+        </div>
+      </div>
+      <details style="margin-top:12px">
+        <summary>Mudar a decisão desta atividade</summary>
+        <div style="margin-top:12px">${campos}${trio}</div>
+      </details>
+    </div>`;
 }
 
 function filtrar(lista, termo, status) {
@@ -401,7 +449,7 @@ const naoLida = (a) => {
   return Boolean(quando) && (!a.lida_em || a.lida_em < quando);
 };
 
-const PRECISA_DE_MIM = ['correcao', 'reprovado'];
+const PRECISA_DE_MIM = ['correcao', 'complemento', 'reprovado'];
 
 function ultimaMensagem(a) {
   const status = a.status || 'pendente';
@@ -411,7 +459,9 @@ function ultimaMensagem(a) {
   return {
     de: quemRespondeu(a),
     texto: a.motivo || a.observacao
-      || (status === 'aprovado' ? 'Atividade aprovada.' : 'Respondida.'),
+      || (status === 'aprovado' ? 'Atividade aprovada.'
+          : status === 'complemento' ? 'Aprovada, mas o professor pediu mais uma coisa.'
+          : 'Respondida.'),
     quando: respondidaEm(a),
   };
 }
@@ -917,12 +967,17 @@ $('#lista-prof').addEventListener('click', async (e) => {
   if (!id) return;
   const status = e.target.dataset.status;
   try {
+    // Pedir complemento tem campo próprio: o "motivo" ali embaixo pertence à
+    // decisão antiga e não pode ser lido por engano.
+    const campoMotivo = status === 'complemento'
+      ? $(`[data-pedido="${id}"]`)
+      : $(`[data-motivo="${id}"]`);
     await api(`/api/atividades/${id}/analise`, {
       metodo: 'POST',
       corpo: {
         status,
         horas_aprovadas: $(`[data-horas-aprovadas="${id}"]`)?.value,
-        motivo: $(`[data-motivo="${id}"]`)?.value || '',
+        motivo: campoMotivo?.value || '',
       },
     });
     await carregarProfessor();
@@ -930,6 +985,7 @@ $('#lista-prof').addEventListener('click', async (e) => {
       aprovado: 'Horas aprovadas.',
       correcao: 'Devolvida ao aluno para correção.',
       reprovado: 'Solicitação reprovada.',
+      complemento: 'Pedido enviado ao aluno. As horas já aprovadas continuam valendo.',
     }[status], 'ok');
   } catch (err) {
     falhar(err);

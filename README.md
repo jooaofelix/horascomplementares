@@ -549,24 +549,30 @@ criada, e passa a usar o novo valor quando a senha for trocada.
 
 ### Esqueci a senha
 
-A porta é diferente conforme o papel, e isso é a decisão central aqui: **aluno troca sozinho, equipe
-precisa de código.**
+> **Aviso, e é um aviso de verdade.** A troca de senha deste sistema é uma **porta aberta**:
+> qualquer pessoa que saiba o e-mail de uma conta — aluno, professor ou administração — troca a
+> senha dela e entra. Isso não é um descuido, é uma decisão de quem administra esta instalação, e as
+> razões estão logo abaixo. Se você for reaproveitar este código em outro lugar, **é aqui que se
+> mexe primeiro.**
 
-**1. Aluno: direto, sem código.** *Esqueci minha senha* → e-mail + senha nova → já entra
-(`POST /api/senha/direta`). É uma porta aberta, e é aberta de propósito: sem serviço de e-mail
-configurado, exigir código significava depender do professor para cada aluno que esquecesse a senha,
-e a turma inteira ficava de fora da aula. O preço é assumido — quem souber o e-mail de um aluno
-assume a conta dele.
+**1. Direto, sem código, para qualquer conta.** *Esqueci minha senha* → e-mail + senha nova → já
+entra (`POST /api/senha/direta`).
 
-**2. Equipe: só com código.** Professor, coordenação e administração são recusados na porta direta
-(403) e caem no fluxo do código. É aí que a porta aberta para de valer a pena: quem toma uma conta
-dessas vê o trabalho de todos, aprova horas e apaga o que quiser — e o e-mail institucional de quem
-dá aula é fácil de descobrir.
+Por que ficou assim: esta instalação nunca teve serviço de e-mail configurado. Sem ele, o código
+dependia de alguém para gerar — e a conta da professora era a única da equipe, então não havia a
+quem pedir: ela não tinha como destravar a própria conta. Primeiro a porta foi aberta só para aluno,
+depois para todos, trocando segurança por não ficar de fora da aula.
 
-**3. O professor gera o código para um aluno.** Em **Meus alunos**, cada aluno tem *"Ele esqueceu a
-senha" → Gerar código de senha*. Continua existindo para o aluno que prefere pedir, e é o caminho de
-quem está sem acesso ao próprio e-mail. **A professora nunca vê nem escolhe a senha de ninguém** —
-ela entrega o código, e quem escolhe a senha é o aluno. Só alcança alunos das turmas dela.
+Para voltar a fechar para quem não é aluno, basta uma linha na rota:
+
+```js
+if (usuario.papel !== 'aluno') throw erro(403, 'Conta de professor troca a senha com código.');
+```
+
+**2. O professor gera o código para um aluno.** Em **Meus alunos**, cada aluno tem *"Ele esqueceu a
+senha" → Gerar código de senha*. Continua existindo, e vale para quem prefere pedir. **A professora
+nunca vê nem escolhe a senha de ninguém** — ela entrega o código, e quem escolhe a senha é o aluno.
+Só alcança alunos das turmas dela.
 
 **4. Por e-mail.** O mesmo código de 8 caracteres chega na caixa da pessoa, quando há serviço de
 envio configurado. A resposta da API é sempre a mesma exista ou não a conta, então ninguém descobre

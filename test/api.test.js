@@ -2378,7 +2378,7 @@ test('quem está logado troca a própria senha conferindo a atual', async () => 
   });
 });
 
-test('o aluno troca a senha direto, sem código — a professora não', async () => {
+test('qualquer conta troca a senha direto, sem código', async () => {
   await comAmbiente(async ({ base }) => {
     const { admin, ana } = await turmaComAluno(base);
 
@@ -2399,18 +2399,19 @@ test('o aluno troca a senha direto, sem código — a professora não', async ()
     })).status, 200);
     assert.equal((await ana('/api/eu')).dados.usuario, null, 'as sessões abertas caíram');
 
-    // A porta fica fechada para quem dá aula: a conta que aprova horas e vê o
-    // trabalho de todo mundo continua exigindo código.
-    const tentativa = await cliente(base)('/api/senha/direta', {
-      metodo: 'POST', corpo: { email: 'marina@exemplo.br', senha: 'invadindo' },
+    // A porta é a mesma para quem dá aula — decisão de quem administra o
+    // sistema, porque a conta da professora não tinha a quem pedir código.
+    const daProfessora = cliente(base);
+    const trocouProf = await daProfessora('/api/senha/direta', {
+      metodo: 'POST', corpo: { email: 'marina@exemplo.br', senha: 'outrasenha' },
     });
-    assert.equal(tentativa.status, 403);
-    assert.match(tentativa.dados.erro, /c[óo]digo/i);
-    assert.equal((await admin('/api/eu')).dados.usuario.email, 'marina@exemplo.br',
-      'a sessão da professora não foi derrubada');
+    assert.equal(trocouProf.status, 200, JSON.stringify(trocouProf.dados));
+    assert.equal(trocouProf.dados.usuario.papel, 'admin');
+    assert.equal((await admin('/api/eu')).dados.usuario, null,
+      'a sessão que ela tinha aberta caiu, como em qualquer troca');
     assert.equal((await cliente(base)('/api/login', {
-      metodo: 'POST', corpo: { email: 'marina@exemplo.br', senha: 'senha123' },
-    })).status, 200, 'e a senha dela continua a mesma');
+      metodo: 'POST', corpo: { email: 'marina@exemplo.br', senha: 'outrasenha' },
+    })).status, 200);
 
     // E-mail que não existe e senha curta param antes de mexer em nada.
     assert.equal((await cliente(base)('/api/senha/direta', {

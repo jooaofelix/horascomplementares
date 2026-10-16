@@ -128,16 +128,17 @@ const professor = {
       titulo: 'Quando um aluno esquece a senha',
       texto: [
         'Na maioria das vezes a senhora não precisa fazer nada: o aluno resolve sozinho na tela de '
-        + 'entrada, em "Esqueci minha senha" — ele digita o e-mail, escolhe outra senha e entra.',
+        + 'entrada, em "Esqueci minha senha" — ele digita o e-mail, escolhe outra senha e entra. '
+        + 'Com a sua conta funciona igual.',
         'Se mesmo assim ele travar, a senhora gera um código: em "Meus alunos", abra o aluno, toque '
         + 'em "Ele esqueceu a senha" e depois em "Gerar código de senha". Dite ou mande no grupo.',
         'A senhora não vê nem escolhe a senha de ninguém — só entrega o código. Ele vale por uma '
         + 'hora; passou disso, é só gerar outro.',
       ],
       imagem: 'prof-senha.png',
-      dica: 'A sua conta é diferente da dos alunos: ela só troca de senha com código, justamente '
-        + 'porque é a conta que aprova horas e enxerga o trabalho da turma inteira. Sabendo a senha '
-        + 'atual, troque em Configurações → Meus dados.',
+      dica: 'A sua conta troca a senha do mesmo jeito: "Esqueci minha senha" na tela de entrada. '
+        + 'Por isso, guarde bem o seu e-mail — quem souber o endereço de uma conta consegue trocar '
+        + 'a senha dela.',
     },
   ],
   perguntas: [
@@ -154,9 +155,8 @@ const professor = {
     ['Posso escrever coisas sobre um aluno?',
       'Sim. Em "Meus alunos", cada um tem um caderno de anotações que só a equipe vê. O aluno nunca vê.'],
     ['Esqueci a minha senha.',
-      'A sua conta não troca sozinha na tela de entrada como a dos alunos — isso é proposital, é a '
-      + 'conta que valida as horas de todos. Peça a outra pessoa da equipe para gerar um código '
-      + 'para você, do mesmo jeito que você gera para os alunos.'],
+      'Igual aos alunos: na tela de entrada, "Esqueci minha senha", digite o seu e-mail, escolha '
+      + 'uma senha nova e entre. Não precisa pedir nada a ninguém.'],
   ],
   fecho:
     'Pronto. Publicar aula, corrigir entrega e validar hora — o resto é detalhe que você descobre '

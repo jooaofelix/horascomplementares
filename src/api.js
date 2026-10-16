@@ -1201,15 +1201,19 @@ export function criarRotas(bd, opcoes = {}) {
       };
     }],
 
-    // Troca direta, sem código nenhum: o aluno digita o e-mail e escolhe a senha
-    // nova. É uma porta aberta, e é aberta de propósito — num sistema sem envio
-    // de e-mail, exigir código significava depender do professor para cada
-    // aluno que esquecesse a senha, e a turma inteira ficava de fora da aula.
+    // Troca direta, sem código nenhum: digita o e-mail, escolhe a senha nova e
+    // entra. Vale para qualquer conta, inclusive professor e administração.
     //
-    // A porta é aberta só para aluno. Conta de professor, coordenação ou
-    // administração continua exigindo código, porque quem toma uma dessas vê o
-    // trabalho de todo mundo, aprova horas e apaga o que quiser — e o e-mail
-    // institucional de quem dá aula é fácil de descobrir.
+    // É uma porta aberta, e é aberta por decisão de quem administra este
+    // sistema: sem serviço de e-mail, o código dependia de alguém para gerar, e
+    // quem dá aula não tinha a quem pedir — a conta da professora era a única
+    // da equipe, então ninguém podia destravá-la. Troca-se segurança por não
+    // ficar de fora da aula.
+    //
+    // O preço é real e está assumido: quem souber o e-mail de alguém assume a
+    // conta, e no caso de uma conta de equipe isso dá acesso ao trabalho da
+    // turma inteira. Se este sistema um dia sair da sala de aula, é aqui que se
+    // mexe primeiro — basta voltar a exigir código de quem não é aluno.
     ['POST', /^\/api\/senha\/direta$/, async (ctx) => {
       const email = texto(ctx.corpo.email, 'seu e-mail', { max: 160 }).toLowerCase();
       const senha = typeof ctx.corpo.senha === 'string' ? ctx.corpo.senha : '';
@@ -1219,9 +1223,6 @@ export function criarRotas(bd, opcoes = {}) {
       if (!usuario) throw erro(404, 'Não achei conta com esse e-mail. Confira, ou use "Criar conta".');
       if (usuario.pre_cadastrado) {
         throw erro(409, 'Sua conta veio da importação e ainda não tem senha. Use "Criar conta" com este mesmo e-mail.');
-      }
-      if (usuario.papel !== 'aluno') {
-        throw erro(403, 'Conta de professor troca a senha com código. Peça a quem administra o sistema.');
       }
 
       await trocarSenha(bd, usuario, senha, iteracoesSenha);

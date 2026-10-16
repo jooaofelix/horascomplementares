@@ -1201,6 +1201,42 @@ export function criarRotas(bd, opcoes = {}) {
       };
     }],
 
+    // Troca direta, sem código nenhum: o aluno digita o e-mail e escolhe a senha
+    // nova. É uma porta aberta, e é aberta de propósito — num sistema sem envio
+    // de e-mail, exigir código significava depender do professor para cada
+    // aluno que esquecesse a senha, e a turma inteira ficava de fora da aula.
+    //
+    // A porta é aberta só para aluno. Conta de professor, coordenação ou
+    // administração continua exigindo código, porque quem toma uma dessas vê o
+    // trabalho de todo mundo, aprova horas e apaga o que quiser — e o e-mail
+    // institucional de quem dá aula é fácil de descobrir.
+    ['POST', /^\/api\/senha\/direta$/, async (ctx) => {
+      const email = texto(ctx.corpo.email, 'seu e-mail', { max: 160 }).toLowerCase();
+      const senha = typeof ctx.corpo.senha === 'string' ? ctx.corpo.senha : '';
+      if (senha.length < 6) throw erro(400, 'A senha precisa de pelo menos 6 caracteres.');
+
+      const usuario = await bd.get('SELECT * FROM usuarios WHERE email = ?', email);
+      if (!usuario) throw erro(404, 'Não achei conta com esse e-mail. Confira, ou use "Criar conta".');
+      if (usuario.pre_cadastrado) {
+        throw erro(409, 'Sua conta veio da importação e ainda não tem senha. Use "Criar conta" com este mesmo e-mail.');
+      }
+      if (usuario.papel !== 'aluno') {
+        throw erro(403, 'Conta de professor troca a senha com código. Peça a quem administra o sistema.');
+      }
+
+      await trocarSenha(bd, usuario, senha, iteracoesSenha);
+      // Fica na trilha de auditoria justamente por ser porta aberta: se uma
+      // conta for tomada, dá para ver quando e de qual IP.
+      await registrar(bd, { ...ctx, usuario }, 'usuario', usuario.id, 'senha_trocada',
+        'Senha trocada direto na tela de entrada, sem código.');
+
+      const { token, expira } = await criarSessao(bd, usuario.id);
+      return {
+        corpo: { usuario: { id: usuario.id, nome: usuario.nome, email: usuario.email, papel: usuario.papel } },
+        cabecalhos: { 'Set-Cookie': cookieDeSessao(token, expira, ctx.seguro) },
+      };
+    }],
+
     // Trocar a própria senha estando logado — sem código, mas conferindo a atual.
     ['PUT', /^\/api\/senha$/, async (ctx) => {
       const usuario = ctx.exigirLogin();

@@ -549,21 +549,33 @@ criada, e passa a usar o novo valor quando a senha for trocada.
 
 ### Esqueci a senha
 
-Há **três** caminhos para trocar uma senha, e o segundo é o que importa aqui, porque é o único que
-funciona num sistema sem serviço de e-mail configurado.
+A porta é diferente conforme o papel, e isso é a decisão central aqui: **aluno troca sozinho, equipe
+precisa de código.**
 
-**1. Pela tela de entrada, por e-mail.** *Esqueci minha senha* → digita o e-mail → o código de 8
-caracteres chega na caixa da pessoa. A resposta da API é sempre a mesma exista ou não a conta, então
-ninguém descobre por aqui quem tem cadastro. Ela devolve `email_ativo`, e é isso que decide o que a
-tela diz em seguida: sem serviço de envio, a pessoa é mandada direto para o caminho 2 em vez de ficar
-esperando um e-mail que nunca sai.
+**1. Aluno: direto, sem código.** *Esqueci minha senha* → e-mail + senha nova → já entra
+(`POST /api/senha/direta`). É uma porta aberta, e é aberta de propósito: sem serviço de e-mail
+configurado, exigir código significava depender do professor para cada aluno que esquecesse a senha,
+e a turma inteira ficava de fora da aula. O preço é assumido — quem souber o e-mail de um aluno
+assume a conta dele.
 
-**2. O professor gera o código.** Em **Meus alunos**, cada aluno tem *"Ele esqueceu a senha" → Gerar
-código de senha*. O código aparece na tela para ela ditar, copiar ou mandar no grupo (e vai por
-e-mail também, se o envio estiver ligado). **A professora nunca vê nem escolhe a senha de ninguém** —
-ela entrega o código, e quem escolhe a senha é o aluno. Só funciona para alunos das turmas dela.
+**2. Equipe: só com código.** Professor, coordenação e administração são recusados na porta direta
+(403) e caem no fluxo do código. É aí que a porta aberta para de valer a pena: quem toma uma conta
+dessas vê o trabalho de todos, aprova horas e apaga o que quiser — e o e-mail institucional de quem
+dá aula é fácil de descobrir.
 
-**3. Estando logado.** Configurações → Meus dados → *Trocar a minha senha*, conferindo a atual.
+**3. O professor gera o código para um aluno.** Em **Meus alunos**, cada aluno tem *"Ele esqueceu a
+senha" → Gerar código de senha*. Continua existindo para o aluno que prefere pedir, e é o caminho de
+quem está sem acesso ao próprio e-mail. **A professora nunca vê nem escolhe a senha de ninguém** —
+ela entrega o código, e quem escolhe a senha é o aluno. Só alcança alunos das turmas dela.
+
+**4. Por e-mail.** O mesmo código de 8 caracteres chega na caixa da pessoa, quando há serviço de
+envio configurado. A resposta da API é sempre a mesma exista ou não a conta, então ninguém descobre
+por aqui quem tem cadastro.
+
+**5. Estando logado.** Configurações → Meus dados → *Trocar a minha senha*, conferindo a atual.
+
+Toda troca entra na trilha de auditoria com data e IP — inclusive a direta, justamente por ser porta
+aberta: se uma conta for tomada, dá para ver quando.
 
 O que protege o código curto não é o tamanho dele, é o cerco em volta:
 

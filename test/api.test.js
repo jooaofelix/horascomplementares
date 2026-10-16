@@ -2377,3 +2377,47 @@ test('quem está logado troca a própria senha conferindo a atual', async () => 
     })).status, 200);
   });
 });
+
+test('o aluno troca a senha direto, sem código — a professora não', async () => {
+  await comAmbiente(async ({ base }) => {
+    const { admin, ana } = await turmaComAluno(base);
+
+    // Porta aberta para aluno: e-mail + senha nova, e já entra.
+    const nova = cliente(base);
+    const trocou = await nova('/api/senha/direta', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', senha: 'senhanova' },
+    });
+    assert.equal(trocou.status, 200, JSON.stringify(trocou.dados));
+    assert.equal((await nova('/api/eu')).dados.usuario.nome, 'Ana Ribeiro', 'entrou junto');
+
+    const porta = cliente(base);
+    assert.equal((await porta('/api/login', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', senha: 'senha123' },
+    })).status, 401, 'a senha velha morreu');
+    assert.equal((await porta('/api/login', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', senha: 'senhanova' },
+    })).status, 200);
+    assert.equal((await ana('/api/eu')).dados.usuario, null, 'as sessões abertas caíram');
+
+    // A porta fica fechada para quem dá aula: a conta que aprova horas e vê o
+    // trabalho de todo mundo continua exigindo código.
+    const tentativa = await cliente(base)('/api/senha/direta', {
+      metodo: 'POST', corpo: { email: 'marina@exemplo.br', senha: 'invadindo' },
+    });
+    assert.equal(tentativa.status, 403);
+    assert.match(tentativa.dados.erro, /c[óo]digo/i);
+    assert.equal((await admin('/api/eu')).dados.usuario.email, 'marina@exemplo.br',
+      'a sessão da professora não foi derrubada');
+    assert.equal((await cliente(base)('/api/login', {
+      metodo: 'POST', corpo: { email: 'marina@exemplo.br', senha: 'senha123' },
+    })).status, 200, 'e a senha dela continua a mesma');
+
+    // E-mail que não existe e senha curta param antes de mexer em nada.
+    assert.equal((await cliente(base)('/api/senha/direta', {
+      metodo: 'POST', corpo: { email: 'ninguem@ex.br', senha: 'senhanova' },
+    })).status, 404);
+    assert.equal((await cliente(base)('/api/senha/direta', {
+      metodo: 'POST', corpo: { email: 'ana@ex.br', senha: 'curta' },
+    })).status, 400);
+  });
+});

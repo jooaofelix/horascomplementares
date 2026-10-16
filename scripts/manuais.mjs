@@ -127,17 +127,17 @@ const professor = {
     {
       titulo: 'Quando um aluno esquece a senha',
       texto: [
-        'Vai acontecer, e a senhora resolve em dez segundos. Em "Meus alunos", abra o aluno e toque '
-        + 'em "Ele esqueceu a senha" e depois em "Gerar código de senha".',
-        'Aparece um código de 8 letras. Dite, copie ou mande no grupo. O aluno abre o sistema, toca '
-        + 'em "Esqueci minha senha", depois em "Já tenho um código", digita o código e escolhe a '
-        + 'senha nova dele.',
+        'Na maioria das vezes a senhora não precisa fazer nada: o aluno resolve sozinho na tela de '
+        + 'entrada, em "Esqueci minha senha" — ele digita o e-mail, escolhe outra senha e entra.',
+        'Se mesmo assim ele travar, a senhora gera um código: em "Meus alunos", abra o aluno, toque '
+        + 'em "Ele esqueceu a senha" e depois em "Gerar código de senha". Dite ou mande no grupo.',
         'A senhora não vê nem escolhe a senha de ninguém — só entrega o código. Ele vale por uma '
         + 'hora; passou disso, é só gerar outro.',
       ],
       imagem: 'prof-senha.png',
-      dica: 'A sua própria senha se troca em Configurações, na aba Meus dados, em '
-        + '"Trocar a minha senha".',
+      dica: 'A sua conta é diferente da dos alunos: ela só troca de senha com código, justamente '
+        + 'porque é a conta que aprova horas e enxerga o trabalho da turma inteira. Sabendo a senha '
+        + 'atual, troque em Configurações → Meus dados.',
     },
   ],
   perguntas: [
@@ -154,9 +154,9 @@ const professor = {
     ['Posso escrever coisas sobre um aluno?',
       'Sim. Em "Meus alunos", cada um tem um caderno de anotações que só a equipe vê. O aluno nunca vê.'],
     ['Esqueci a minha senha.',
-      'Em Configurações, na aba Meus dados, existe "Trocar a minha senha" — mas isso pede a senha '
-      + 'antiga. Se você não lembra dela, peça a outra pessoa da equipe para gerar um código para '
-      + 'você, do mesmo jeito que você gera para os alunos.'],
+      'A sua conta não troca sozinha na tela de entrada como a dos alunos — isso é proposital, é a '
+      + 'conta que valida as horas de todos. Peça a outra pessoa da equipe para gerar um código '
+      + 'para você, do mesmo jeito que você gera para os alunos.'],
   ],
   fecho:
     'Pronto. Publicar aula, corrigir entrega e validar hora — o resto é detalhe que você descobre '
@@ -266,16 +266,15 @@ const aluno = {
     {
       titulo: 'Se você esquecer a senha',
       texto: [
-        'Na tela de entrada tem "Esqueci minha senha". Digite o seu e-mail e toque no botão.',
-        'Se o sistema mandar e-mail, o código de 8 letras chega na sua caixa de entrada (olhe o '
-        + 'spam também). Se não mandar, a própria tela avisa: peça o código ao seu professor, que '
-        + 'gera na hora.',
-        'Com o código na mão, toque em "Já tenho um código", digite o código, escolha a senha nova '
-        + 'e pronto — você já entra direto. O código vale por uma hora.',
+        'Não precisa pedir nada a ninguém. Na tela de entrada toque em "Esqueci minha senha".',
+        'Digite o seu e-mail, escolha uma senha nova e toque em "Trocar a senha e entrar". '
+        + 'Pronto: você já está dentro, na mesma hora.',
+        'A senha antiga para de valer na hora, e se você estava logado em outro aparelho, aquele '
+        + 'aparelho vai pedir para entrar de novo.',
       ],
       imagem: 'aluno-senha.png',
-      dica: 'Quem escolhe a senha é você. O professor entrega o código, mas nunca vê nem escolhe a '
-        + 'sua senha.',
+      dica: 'Use o mesmo e-mail com que você criou a conta. Se aparecer "não achei conta com esse '
+        + 'e-mail", provavelmente foi outro e-mail — ou você ainda não criou a conta.',
     },
   ],
   perguntas: [
@@ -286,9 +285,8 @@ const aluno = {
     ['Faço parte de duas turmas.',
       'Hoje a conta fica em uma turma por vez. Fale com o professor.'],
     ['Esqueci a senha.',
-      'Na tela de entrada tem "Esqueci minha senha". Se o sistema mandar e-mail, o código chega na '
-      + 'sua caixa; se não, peça o código ao professor — ele gera na hora. Quem escolhe a senha nova '
-      + 'é você, não ele.'],
+      'Na tela de entrada toque em "Esqueci minha senha", digite o seu e-mail, escolha uma senha '
+      + 'nova e pronto. Não precisa pedir código a ninguém.'],
   ],
   fecho:
     'Resumindo: tarefa que o professor pediu, você entrega pela tarefa. Coisa que você fez por '

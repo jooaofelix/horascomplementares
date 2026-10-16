@@ -41,35 +41,34 @@
       <form id="form-senha" class="oculto">
         <h2 style="margin:0 0 6px">Trocar a senha</h2>
         <p class="ajuda" style="margin:0 0 16px">
-          Você precisa de um código de 8 letras para escolher uma senha nova.
+          Digite o seu e-mail, escolha uma senha nova e pronto — você já entra.
         </p>
 
         <div class="campo">
           <label for="senha-email">Seu e-mail</label>
           <input id="senha-email" type="email" autocomplete="email" inputmode="email" required>
         </div>
-
-        <div id="senha-passo-pedir">
-          <button type="button" id="btn-pedir-codigo">Me manda o código por e-mail</button>
-          <div class="ajuda" id="senha-resultado" style="margin-top:12px"></div>
-          <p class="alternar" style="margin-top:14px">
-            <a id="ir-digitar-codigo">Já tenho um código</a>
-          </p>
+        <div class="campo">
+          <label for="senha-nova">Senha nova <span class="opcional">— mínimo 6 caracteres</span></label>
+          <input id="senha-nova" type="password" autocomplete="new-password" minlength="6" required>
         </div>
 
+        <!-- Só aparece para conta de professor, que continua precisando de código. -->
         <div id="senha-passo-codigo" class="oculto">
           <div class="campo">
             <label for="senha-codigo">Código</label>
             <input id="senha-codigo" autocapitalize="characters" autocomplete="one-time-code" maxlength="12"
                    placeholder="Ex.: K7PQ2MX4" style="text-transform:uppercase;letter-spacing:.12em">
           </div>
-          <div class="campo">
-            <label for="senha-nova">Senha nova <span class="opcional">— mínimo 6 caracteres</span></label>
-            <input id="senha-nova" type="password" autocomplete="new-password" minlength="6">
-          </div>
-          <button type="submit">Trocar a senha e entrar</button>
+          <button type="button" id="btn-pedir-codigo" class="secundario">Me manda o código por e-mail</button>
+          <div class="ajuda" id="senha-resultado" style="margin-top:12px"></div>
         </div>
 
+        <button type="submit" style="margin-top:4px">Trocar a senha e entrar</button>
+
+        <p class="alternar" style="margin-top:14px">
+          <a id="ir-digitar-codigo">Sou professor(a), tenho um código</a>
+        </p>
         <p class="alternar">Lembrou? <a id="voltar-do-senha">Entrar</a></p>
       </form>
 

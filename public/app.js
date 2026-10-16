@@ -107,16 +107,20 @@ $('#ir-senha').onclick = () => {
   trocarFormulario('senha');
   // Quem já digitou o e-mail para entrar não digita de novo.
   $('#senha-email').value = $('#login-email').value;
+  $('#senha-nova').value = '';
+  $('#senha-codigo').value = '';
   $('#senha-resultado').textContent = '';
   $('#senha-passo-codigo').classList.add('oculto');
-  $('#senha-passo-pedir').classList.remove('oculto');
 };
 
-// "Já tenho um código" — quem recebeu o código do professor pula o pedido.
-$('#ir-digitar-codigo').onclick = () => {
+// Aluno não precisa de código: o campo só aparece para quem dá aula, ou quando
+// o servidor avisa que aquela conta é de equipe.
+const pedirCodigo = () => {
   $('#senha-passo-codigo').classList.remove('oculto');
   $('#senha-codigo').focus();
 };
+
+$('#ir-digitar-codigo').onclick = pedirCodigo;
 
 $('#btn-pedir-codigo').onclick = async () => {
   const email = $('#senha-email').value.trim();
@@ -142,19 +146,20 @@ $('#btn-pedir-codigo').onclick = async () => {
 
 $('#form-senha').onsubmit = async (e) => {
   e.preventDefault();
+  const codigo = $('#senha-codigo').value.trim();
+  // Sem código digitado, tenta a porta direta — que é a do aluno. Se a conta
+  // for de professor, o servidor recusa e aí sim pedimos o código.
+  const rota = codigo ? '/api/senha/redefinir' : '/api/senha/direta';
   try {
-    await api('/api/senha/redefinir', {
+    await api(rota, {
       metodo: 'POST',
-      corpo: {
-        email: $('#senha-email').value,
-        codigo: $('#senha-codigo').value,
-        senha: $('#senha-nova').value,
-      },
+      corpo: { email: $('#senha-email').value, codigo, senha: $('#senha-nova').value },
     });
     await iniciar();
     avisar('Senha trocada. Você já está dentro.', 'ok');
   } catch (err) {
     avisarEntrada(err.message);
+    if (/c[óo]digo/i.test(err.message)) pedirCodigo();
   }
 };
 

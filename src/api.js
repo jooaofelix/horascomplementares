@@ -102,7 +102,7 @@ async function validarAtividade(bd, corpo) {
 
   const horas = Number(corpo.horas);
   if (!Number.isFinite(horas) || horas <= 0) throw erro(400, 'As horas devem ser um número maior que zero.');
-  if (horas > 1000) throw erro(400, 'Máximo de 1000 horas por registro.');
+  if (horas > MAX_HORAS) throw erro(400, `Máximo de ${MAX_HORAS} horas por registro.`);
 
   const analise = typeof corpo.texto === 'string' ? corpo.texto : '';
   if (analise.length > LIMITE_TEXTO) {
@@ -125,6 +125,44 @@ async function validarAtividade(bd, corpo) {
     arquivo_nome: opcional(corpo.arquivo_nome, 'o nome do arquivo', 255),
   };
 }
+
+// Teto de sanidade, não de política: a professora decide quanto a atividade
+// vale, mas um dedo escorregando no teclado não pode somar 90.000 h na turma.
+const MAX_HORAS = 1000;
+
+// Quantas horas a equipe mandou aprovar. Campo em branco ou ausente significa
+// "não mexa no que já estava" — não significa zero.
+function horasAprovadasPedidas(corpo, atual) {
+  const bruto = corpo.horas_aprovadas;
+  if (bruto === undefined || bruto === null || bruto === '') return atual ?? null;
+  const horas = Number(bruto);
+  if (!Number.isFinite(horas) || horas < 0) throw erro(400, 'Horas aprovadas inválidas.');
+  if (horas > MAX_HORAS) throw erro(400, `Máximo de ${MAX_HORAS} horas por registro.`);
+  return Math.round(horas * 100) / 100;
+}
+
+// O que a equipe mexeu, em palavras: é por este texto no histórico que o aluno
+// descobre que alguém corrigiu a ficha dele, e o quê.
+const CAMPOS_ATIVIDADE = [
+  ['titulo', 'o nome'],
+  ['categoria', 'o tipo'],
+  ['data_atividade', 'a data'],
+  ['data_fim', 'a data de término'],
+  ['horas', 'as horas declaradas'],
+  ['local', 'o local'],
+  ['responsavel', 'o responsável'],
+  ['comprovante', 'o comprovante'],
+  ['texto', 'o texto da análise'],
+];
+
+const descreverMudancas = (antes, depois) =>
+  CAMPOS_ATIVIDADE
+    .filter(([campo]) => String(antes[campo] ?? '') !== String(depois[campo] ?? ''))
+    .map(([, nome]) => nome);
+
+// "a data", "a data e o tipo", "a data, o tipo e as horas".
+const listar = (itens) =>
+  itens.length < 2 ? (itens[0] ?? '') : `${itens.slice(0, -1).join(', ')} e ${itens[itens.length - 1]}`;
 
 // ---------- turmas ----------
 
@@ -1609,14 +1647,25 @@ export function criarRotas(bd, opcoes = {}) {
       };
     }],
 
+    // Uma porta, dois donos. O aluno edita o que ainda está na fila, e a versão
+    // nova volta para o começo. A equipe edita qualquer coisa, em qualquer fase:
+    // ela conserta a data que o aluno errou, troca o tipo, reescreve a carga e
+    // diz de uma vez quanto aquilo passa a valer — sem derrubar o próprio selo,
+    // porque não há nada para revalidar quando quem mexeu foi ela.
     ['PUT', /^\/api\/atividades\/(\d+)$/, async (ctx) => {
       const usuario = ctx.exigirLogin();
       const atual = await buscarAtividade(bd, Number(ctx.parametros[0]));
       if (!atual) throw erro(404, 'Atividade não encontrada.');
-      if (atual.usuario_id !== usuario.id) throw erro(403, 'Essa atividade é de outro aluno.');
-      // Depois de devolvida, não se edita: reenvia — e o reenvio pede o tempo
-      // que a correção levou.
-      if (DEVOLVIDAS.includes(atual.status)) {
+
+      const proprio = atual.usuario_id === usuario.id;
+      const daEquipe = !proprio
+        && PAPEIS_EQUIPE.includes(usuario.papel)
+        && Boolean(await atividadeVisivelAEquipe(bd, atual.id, usuario));
+      if (!proprio && !daEquipe) throw erro(403, 'Essa atividade é de outro aluno.');
+
+      // Depois de devolvida, o aluno não edita: reenvia — e o reenvio pede o
+      // tempo que a correção levou. Para a equipe esse desvio não existe.
+      if (proprio && DEVOLVIDAS.includes(atual.status)) {
         throw erro(409, atual.status === 'complemento'
           ? 'O professor pediu um complemento nesta atividade. Use "Enviar o complemento".'
           : 'Esta atividade foi devolvida para correção. Use "Reenviar para validação".');
@@ -1630,38 +1679,91 @@ export function criarRotas(bd, opcoes = {}) {
       const daAnalise = ctx.corpo.arquivo_analise
         ? await guardarArquivo(bd, opcoes.arquivos, usuario, ctx.corpo.arquivo_analise)
         : null;
-      // Editar o conteúdo derruba o selo do professor: ele revalida a versão nova.
-      await bd.run(
-        `UPDATE atividades
-            SET titulo = ?, categoria = ?, categoria_id = ?, local = ?, responsavel = ?,
-                data_atividade = ?, data_fim = ?, horas = ?, comprovante = ?, texto = ?,
-                arquivo_nome = ?, arquivo_id = ?, analise_arquivo_id = ?,
-                status = 'pendente', horas_aprovadas = NULL, analisado_por = NULL, analisado_em = NULL,
-                validado = 0, validado_por = NULL, validado_em = NULL, atualizado_em = ?
-          WHERE id = ?`,
+
+      const agora = new Date().toISOString();
+      const campos = [
         d.titulo, d.categoria, d.categoria_id, d.local, d.responsavel, d.data_atividade, d.data_fim,
         d.horas, d.comprovante, d.texto,
         anexo ? anexo.nome : (d.arquivo_nome ?? atual.arquivo_nome),
         anexo ? anexo.id : atual.arquivo_id,
         daAnalise ? daAnalise.id : atual.analise_arquivo_id,
-        new Date().toISOString(), atual.id,
-      );
-      await registrar(bd, ctx, 'atividade', atual.id, 'editada',
-        `Aluno editou a atividade; ela volta para a fila de análise.`,
-        { antes: { horas: atual.horas, titulo: atual.titulo }, depois: { horas: d.horas, titulo: d.titulo } });
+      ];
 
-      avisarPorEmail(
-        opcoes,
-        await quemValidaAsHoras(bd, usuario.id),
-        `Horas reenviadas: ${d.titulo} — ${usuario.nome}`,
-        `${usuario.nome} refez o lançamento e ele voltou para a fila.`
-        + (atual.motivo ? `\nVocê tinha pedido: ${atual.motivo}\n` : '')
-        + `\n${atividadeEmTexto(usuario, d)}`
-        + linkDoSistema(ctx),
-        anexosDoPedido(ctx.corpo, ['arquivo_analise', 'arquivo']),
+      // Editar o conteúdo derruba o selo do professor: ele revalida a versão
+      // nova. Já a edição da equipe mantém o status onde está e carrega o
+      // número que ela digitou em "horas a aprovar" — e marca a data de análise
+      // para acender a bolinha do aluno: mexeram na ficha dele.
+      const aprovadas = proprio ? null : horasAprovadasPedidas(ctx.corpo, atual.horas_aprovadas);
+      const selo = proprio
+        ? `status = 'pendente', horas_aprovadas = NULL, analisado_por = NULL, analisado_em = NULL,
+           validado = 0, validado_por = NULL, validado_em = NULL`
+        : 'horas_aprovadas = ?, analisado_por = ?, analisado_em = ?';
+      const extras = proprio ? [] : [aprovadas, usuario.id, agora];
+
+      await bd.run(
+        `UPDATE atividades
+            SET titulo = ?, categoria = ?, categoria_id = ?, local = ?, responsavel = ?,
+                data_atividade = ?, data_fim = ?, horas = ?, comprovante = ?, texto = ?,
+                arquivo_nome = ?, arquivo_id = ?, analise_arquivo_id = ?,
+                ${selo}, atualizado_em = ?
+          WHERE id = ?`,
+        ...campos, ...extras, agora, atual.id,
       );
 
-      return { corpo: { atividade: await buscarAtividade(bd, atual.id), resumo: await resumo(bd, usuario.id) } };
+      const mudou = descreverMudancas(atual, d);
+      if (proprio) {
+        await registrar(bd, ctx, 'atividade', atual.id, 'editada',
+          `Aluno editou a atividade; ela volta para a fila de análise.`,
+          { antes: { horas: atual.horas, titulo: atual.titulo }, depois: { horas: d.horas, titulo: d.titulo } });
+      } else {
+        await registrar(bd, ctx, 'atividade', atual.id, 'ajustada',
+          `${usuario.nome} corrigiu o lançamento`
+          + (mudou.length ? `: mudou ${listar(mudou)}` : ' (sem mudar nenhum campo)')
+          + (aprovadas !== atual.horas_aprovadas
+            ? `. Passa a valer ${aprovadas ?? d.horas} h.` : '.'),
+          {
+            antes: { horas: atual.horas, titulo: atual.titulo, horas_aprovadas: atual.horas_aprovadas },
+            depois: { horas: d.horas, titulo: d.titulo, horas_aprovadas: aprovadas },
+            campos: mudou,
+          });
+      }
+
+      if (proprio) {
+        avisarPorEmail(
+          opcoes,
+          await quemValidaAsHoras(bd, usuario.id),
+          `Horas reenviadas: ${d.titulo} — ${usuario.nome}`,
+          `${usuario.nome} refez o lançamento e ele voltou para a fila.`
+          + (atual.motivo ? `\nVocê tinha pedido: ${atual.motivo}\n` : '')
+          + `\n${atividadeEmTexto(usuario, d)}`
+          + linkDoSistema(ctx),
+          anexosDoPedido(ctx.corpo, ['arquivo_analise', 'arquivo']),
+        );
+      } else {
+        // O aluno precisa saber que a ficha dele mudou de mão: não foi ele que
+        // pediu, e pode ser que a carga dele tenha mudado junto.
+        const aluno = await bd.get('SELECT nome, email, email_aviso, avisar_email FROM usuarios WHERE id = ?',
+          atual.usuario_id);
+        if (aluno) {
+          avisarPorEmail(
+            opcoes,
+            [{ ...aluno, email: aluno.email_aviso || aluno.email }],
+            `Seu lançamento foi corrigido: ${d.titulo}`,
+            `Olá, ${aluno.nome}.\n\n`
+            + `${usuario.nome} corrigiu o seu lançamento "${d.titulo}" no sistema`
+            + (mudou.length ? ` — mudou ${listar(mudou)}` : '') + '.\n\n'
+            + atividadeEmTexto(aluno, d)
+            + linkDoSistema(ctx),
+          );
+        }
+      }
+
+      return {
+        corpo: {
+          atividade: await buscarAtividade(bd, atual.id),
+          resumo: await resumo(bd, atual.usuario_id),
+        },
+      };
     }],
 
     // Marca a conversa como lida: é o que apaga a bolinha da caixa de entrada.
@@ -1805,13 +1907,15 @@ export function criarRotas(bd, opcoes = {}) {
         throw erro(409, 'Esta atividade ainda não foi aprovada. Para pedir mudanças, devolva para correção.');
       }
 
+      // Quanto vale é decisão da professora, para cima ou para baixo. O aluno
+      // declara uma estimativa; quem conhece a atividade é ela, e às vezes o
+      // trabalho valeu mais do que o aluno teve coragem de pedir.
       let horasAprovadas = null;
       if (status === 'aprovado') {
         horasAprovadas = Number(ctx.corpo.horas_aprovadas ?? atual.horas);
         if (!Number.isFinite(horasAprovadas) || horasAprovadas <= 0) throw erro(400, 'Horas aprovadas inválidas.');
-        if (horasAprovadas > atual.horas) {
-          throw erro(400, `O aluno declarou ${atual.horas} h; não dá para aprovar mais do que isso.`);
-        }
+        if (horasAprovadas > MAX_HORAS) throw erro(400, `Máximo de ${MAX_HORAS} horas por registro.`);
+        horasAprovadas = Math.round(horasAprovadas * 100) / 100;
       }
       // As horas já aprovadas continuam no lugar enquanto ele faz o complemento.
       if (status === 'complemento') horasAprovadas = jaAprovadas;
@@ -1832,12 +1936,12 @@ export function criarRotas(bd, opcoes = {}) {
         agora, id,
       );
 
-      const cortou = status === 'aprovado' && horasAprovadas !== atual.horas;
+      const outraCarga = status === 'aprovado' && horasAprovadas !== atual.horas;
       await registrar(bd, ctx, 'atividade', id, status,
         `Solicitação ${NOME_STATUS[status]}` +
         (status === 'aprovado' ? ` com ${horasAprovadas} h` : '') +
         (status === 'complemento' ? ` (as ${horasAprovadas} h já aprovadas continuam valendo)` : '') +
-        (cortou ? ` (o aluno havia declarado ${atual.horas} h)` : '') +
+        (outraCarga ? ` (o aluno havia declarado ${atual.horas} h)` : '') +
         (motivo ? `. Motivo: ${motivo}` : '.'),
         { de: atual.status, para: status, horas_declaradas: atual.horas, horas_aprovadas: horasAprovadas });
 

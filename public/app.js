@@ -345,7 +345,14 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
   const selo = `<span class="selo ${classe}">${rotulo}${
     status === 'aprovado' && a.validado_por_nome ? ' · ' + escapar(a.validado_por_nome) : ''
   }</span>`;
-  const cargaCortada = status === 'aprovado' && a.horas_aprovadas != null && a.horas_aprovadas !== a.horas;
+  // A professora decide a carga para os dois lados: pode cortar o que o aluno
+  // declarou e pode dar mais do que ele pediu.
+  const outraCarga = status === 'aprovado' && a.horas_aprovadas != null && a.horas_aprovadas !== a.horas;
+  const ficha = outraCarga
+    ? a.horas_aprovadas > a.horas
+      ? `${horas(a.horas_aprovadas)} — o aluno havia declarado ${horas(a.horas)}`
+      : `${horas(a.horas_aprovadas)} das ${horas(a.horas)} declaradas`
+    : null;
 
   const periodo = a.data_fim && a.data_fim !== a.data_atividade
     ? `${dataBr(a.data_atividade)} a ${dataBr(a.data_fim)}`
@@ -354,7 +361,7 @@ function cartaoAtividade(a, { comAluno = false, comValidacao = false, comEdicao 
   const itens = [
     ['Data', periodo],
     ['Tipo', a.categoria],
-    cargaCortada ? ['Aprovadas', `${horas(a.horas_aprovadas)} das ${horas(a.horas)} declaradas`] : null,
+    ficha ? ['Aprovadas', ficha] : null,
     comAluno ? ['Aluno', a.aluno_nome + (a.aluno_matricula ? ` (${a.aluno_matricula})` : '')] : null,
     comAluno ? ['Turma', a.turma_nome || 'sem turma'] : null,
     a.local ? ['Local', a.local] : null,
@@ -464,7 +471,9 @@ function blocoDoProfessor(a, status) {
       <button class="perigo mini" data-analise="${a.id}" data-status="reprovado">Reprovar</button>
     </div>`;
 
-  if (!jaDecidiu(status)) return `<div style="margin-top:16px">${campos}${trio}</div>`;
+  if (!jaDecidiu(status)) {
+    return `<div style="margin-top:16px">${campos}${trio}${blocoDeCorrecao(a)}</div>`;
+  }
 
   return `
     <div style="margin-top:16px">
@@ -487,7 +496,72 @@ function blocoDoProfessor(a, status) {
         <summary>Mudar a decisão desta atividade</summary>
         <div style="margin-top:12px">${campos}${trio}</div>
       </details>
+      ${blocoDeCorrecao(a)}
     </div>`;
+}
+
+// A ficha do aluno na mão dela. Nem sempre o que está escrito é o que
+// aconteceu: a data vem trocada, o tipo vem errado, a carga vem chutada por
+// baixo. Em vez de devolver para o aluno consertar a digitação, ela conserta —
+// em qualquer fase, inclusive depois de aprovada, e já diz quanto aquilo passa
+// a valer. Mexer aqui não derruba a decisão dela nem reabre a fila.
+function blocoDeCorrecao(a) {
+  const opcoes = (estado.categorias || [])
+    .filter((c) => c.ativa || c.nome === a.categoria)
+    .map((c) => `<option value="${c.id}"${c.nome === a.categoria ? ' selected' : ''}>${escapar(c.nome)}</option>`)
+    .join('');
+
+  const campo = (rotulo, attrs, valor = '', dica = '') => `
+    <div class="campo">
+      <label>${rotulo}${dica ? ` <span class="opcional">${dica}</span>` : ''}</label>
+      <input ${attrs} value="${escapar(valor ?? '')}">
+    </div>`;
+
+  return `
+    <details style="margin-top:12px" data-correcao-de="${a.id}">
+      <summary>Corrigir os dados deste lançamento</summary>
+      <div class="bloco" style="margin-top:12px">
+        <p class="explicacao">
+          Você pode mudar qualquer campo, em qualquer fase — inclusive as horas que isso vale. O aluno
+          recebe o aviso e o histórico guarda o que você mexeu. A decisão atual não muda aqui.
+        </p>
+        ${campo('Nome da atividade', `data-cor-titulo="${a.id}" maxlength="200"`, a.titulo)}
+        <div class="linha">
+          <div class="campo">
+            <label>Tipo</label>
+            <select data-cor-categoria="${a.id}">${opcoes}</select>
+          </div>
+          ${campo('Data', `type="date" data-cor-inicio="${a.id}"`, a.data_atividade)}
+          ${campo('Término', `type="date" data-cor-fim="${a.id}"`, a.data_fim, '(opcional)')}
+        </div>
+        <div class="linha">
+          ${campo(
+            'Horas declaradas',
+            `type="number" min="0.1" step="0.5" inputmode="decimal" data-cor-horas="${a.id}"`,
+            a.horas,
+            '(o que consta na ficha)',
+          )}
+          ${campo(
+            'Horas que isso vale',
+            `type="number" min="0" step="0.5" inputmode="decimal" data-cor-aprovadas="${a.id}"`,
+            a.horas_aprovadas ?? '',
+            '(em branco: não mexer)',
+          )}
+        </div>
+        <div class="linha">
+          ${campo('Local', `data-cor-local="${a.id}" maxlength="160"`, a.local)}
+          ${campo('Responsável', `data-cor-responsavel="${a.id}" maxlength="120"`, a.responsavel)}
+        </div>
+        ${campo('Comprovante', `data-cor-comprovante="${a.id}" maxlength="300"`, a.comprovante)}
+        <div class="campo">
+          <label>Texto da análise <span class="opcional">(o que o aluno escreveu)</span></label>
+          <textarea data-cor-texto="${a.id}" style="min-height:140px">${escapar(a.texto || '')}</textarea>
+        </div>
+        <div class="acoes">
+          <button class="mini" data-corrigir="${a.id}">Salvar a correção</button>
+        </div>
+      </div>
+    </details>`;
 }
 
 function filtrar(lista, termo, status) {
@@ -524,9 +598,13 @@ function ultimaMensagem(a) {
   if (!respondidaEm(a)) {
     return { de: 'Você', texto: 'Enviado, esperando o professor ver.', quando: a.atualizado_em || a.criado_em };
   }
+  // Ainda na fila, mas alguém da equipe já mexeu: foi uma correção na ficha,
+  // não uma decisão. Dizer "respondida" aqui seria mentira.
+  const naFila = status === 'pendente' || status === 'em_analise';
   return {
     de: quemRespondeu(a),
-    texto: a.motivo || a.observacao
+    texto: naFila ? 'Corrigiu os dados do seu lançamento.'
+      : a.motivo || a.observacao
       || (status === 'aprovado' ? 'Atividade aprovada.'
           : status === 'complemento' ? 'Aprovada, mas o professor pediu mais uma coisa.'
           : 'Respondida.'),
@@ -1087,6 +1165,35 @@ $('#lista-prof').addEventListener('click', async (e) => {
       reprovado: 'Solicitação reprovada.',
       complemento: 'Pedido enviado ao aluno. As horas já aprovadas continuam valendo.',
     }[status], 'ok');
+  } catch (err) {
+    falhar(err);
+  }
+});
+
+// Salvar a correção manda a ficha inteira de volta, não só o que mudou: o
+// servidor valida o lançamento como um todo, igual ao do aluno.
+$('#lista-prof').addEventListener('click', async (e) => {
+  const id = e.target.dataset.corrigir;
+  if (!id) return;
+  const valor = (campo) => $(`[data-cor-${campo}="${id}"]`)?.value ?? '';
+  try {
+    await api(`/api/atividades/${id}`, {
+      metodo: 'PUT',
+      corpo: {
+        titulo: valor('titulo'),
+        categoria_id: valor('categoria'),
+        data_atividade: valor('inicio'),
+        data_fim: valor('fim') || null,
+        horas: valor('horas'),
+        horas_aprovadas: valor('aprovadas'),
+        local: valor('local'),
+        responsavel: valor('responsavel'),
+        comprovante: valor('comprovante'),
+        texto: valor('texto'),
+      },
+    });
+    await carregarProfessor();
+    avisar('Lançamento corrigido. O aluno foi avisado.', 'ok');
   } catch (err) {
     falhar(err);
   }

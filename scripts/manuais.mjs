@@ -102,7 +102,8 @@ const professor = {
         'Em "Horas complementares" ficam as horas que os alunos lançaram por conta própria: '
         + 'congressos, cursos, monitoria, visitas.',
         'Cada uma traz a ficha completa, o texto do aluno e o comprovante. Você confere e escolhe: '
-        + 'Aprovar (pode aprovar menos horas do que ele pediu), Devolver para correção, ou Reprovar.',
+        + 'Aprovar, Devolver para correção, ou Reprovar. No campo "Horas a aprovar" você digita '
+        + 'quanto aquilo vale de verdade — pode ser menos do que ele pediu, e pode ser mais.',
         'Devolveu? O aluno corrige, informa quanto tempo levou nisso e reenvia — esse tempo entra '
         + 'na conta das horas dele.',
       ],
@@ -123,6 +124,22 @@ const professor = {
       imagem: 'prof-complemento.png',
       dica: 'Mudou de ideia sobre a aprovação? "Mudar a decisão desta atividade", logo abaixo, '
         + 'traz de volta Aprovar, Devolver e Reprovar.',
+    },
+    {
+      titulo: 'Consertar o que o aluno digitou errado',
+      texto: [
+        'A ficha é sua. Se a data veio trocada, o tipo está errado, o nome não diz nada ou a carga '
+        + 'veio chutada, não precisa devolver para o aluno arrumar a digitação: arrume você.',
+        'No cartão da atividade, abra "Corrigir os dados deste lançamento". Ali dentro você muda '
+        + 'qualquer campo — nome, tipo, datas, local, responsável, comprovante, horas e até o texto '
+        + 'da análise — e em "Horas que isso vale" define quanto aquilo passa a valer. Depois é só '
+        + '"Salvar a correção".',
+        'Funciona em qualquer fase: antes de analisar, depois de aprovada e até no que já voltou '
+        + 'para o aluno. Corrigir não muda a sua decisão nem derruba a aprovação que você já deu.',
+      ],
+      imagem: 'prof-corrigir-ficha.png',
+      dica: 'O aluno é avisado por e-mail e o histórico da solicitação guarda o que você mexeu, '
+        + 'com o seu nome e a hora. Nada é corrigido escondido dele.',
     },
     {
       titulo: 'Quando um aluno esquece a senha',

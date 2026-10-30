@@ -315,6 +315,48 @@ turma): valem as `horas_aprovadas` enquanto a atividade não for reprovada, e "a
 diferença entre o declarado e o que já foi aprovado — numa atividade de 6 h aprovadas que virou 9 h
 com o complemento, o aluno vê 6 h validadas e 3 h em análise, nunca 0 e 9.
 
+## A ficha é da professora: corrigir qualquer campo, em qualquer fase
+
+Nem sempre o que o aluno digitou é o que aconteceu. A data vem trocada, o tipo vem errado, a carga
+vem chutada por baixo, o nome da atividade não diz nada. Devolver para o aluno consertar a digitação
+é burocracia: quem conhece a atividade é quem vai validá-la.
+
+Por isso **quem é da equipe edita o lançamento inteiro**, pelo mesmo `PUT /api/atividades/:id` que o
+aluno usa. No cartão, dentro de *"Corrigir os dados deste lançamento"*, ela muda nome, tipo, datas,
+local, responsável, comprovante, horas declaradas, o texto da análise — e **quanto aquilo passa a
+valer**. Vale em qualquer fase, inclusive depois de aprovada e inclusive no que já foi devolvido ao
+aluno.
+
+A mesma porta, dois comportamentos — e a diferença é de propósito:
+
+| Quem edita | O que acontece com a decisão |
+| --- | --- |
+| o **aluno** | o selo cai, `horas_aprovadas` zera e a atividade volta para a fila como `pendente` |
+| a **equipe** | nada cai: o status fica onde está e o selo continua de pé |
+
+A razão é simples: quando o aluno mexe no conteúdo, existe uma versão nova para revalidar. Quando
+quem mexeu foi a professora, não existe — a decisão é dela, e ela acabou de tomá-la.
+
+Nada disso é silencioso. Cada correção entra no histórico da solicitação com o nome de quem mexeu e
+o que mudou (*"corrigiu o lançamento: mudou o nome, a data e as horas declaradas. Passa a valer
+11 h"*), o aluno recebe um e-mail avisando, e a bolinha de novidade acende na caixa de entrada dele
+com a linha *"Corrigiu os dados do seu lançamento."*
+
+**As horas aprovadas também sobem.** O aluno declara uma estimativa; às vezes o trabalho valeu mais
+do que ele teve coragem de pedir. Então `horas_aprovadas` pode passar das `horas` declaradas, tanto
+em *Aprovar* quanto na correção — o cartão mostra `11 h — o aluno havia declarado 9 h`. O único teto
+é de sanidade: **1000 h por registro**, para um dedo escorregado no teclado não somar 90.000 h na
+turma.
+
+O que a equipe *não* faz por esta porta é mudar o status: aprovar, devolver, reprovar e pedir
+complemento continuam nos botões de sempre, por `POST /api/atividades/:id/analise`. Corrigir a ficha
+e decidir sobre ela são dois gestos diferentes, e misturá-los só faria alguém reprovar sem querer o
+que já tinha aceitado.
+
+O alcance é o de sempre: a professora só enxerga — e portanto só corrige — lançamentos de alunos das
+turmas e matérias dela; a coordenação, os do curso dela; a administração, todos. Lançamento de aluno
+que ela não acompanha devolve **403**.
+
 ## Quando o professor pede revisão de uma tarefa
 
 Ao devolver uma entrega, o professor escreve o que falta. Do lado do aluno aparece um campo a mais:
@@ -519,8 +561,9 @@ Toda hora declarada já conta no painel do aluno. O professor, na aba **Registro
 marca *Validar horas* — com uma observação opcional que aparece para o aluno. O painel mostra os dois
 totais lado a lado: **declarado** e **validado**.
 
-Se o aluno editar uma atividade já validada, o selo cai e ela volta para a fila de pendentes — assim
-o professor sempre valida a versão que está lá.
+Se o **aluno** editar uma atividade já validada, o selo cai e ela volta para a fila de pendentes —
+assim o professor sempre valida a versão que está lá. Se quem editar for a **equipe**, o selo fica:
+veja *"A ficha é da professora"* acima.
 
 ## O que o professor vê
 
